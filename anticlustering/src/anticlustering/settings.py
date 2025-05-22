@@ -42,3 +42,15 @@ CONFIG_LOADER_ARGS = {
 # Class that manages the Data Catalog.
 # from kedro.io import DataCatalog
 # DATA_CATALOG_CLASS = DataCatalog
+
+
+from anticlustering.pipelines.data_simulation import pipeline as data_simulation_pl
+from anticlustering.pipelines.anticluster import pipeline as anticluster_pl
+
+PIPELINE_REGISTRY = {
+    "data_simulation": data_simulation_pl.create_pipeline(),
+    "anticluster"    : anticluster_pl.create_pipeline(),
+}
+
+# default pipeline when user just runs `kedro run`
+DEFAULT_PIPELINE = PIPELINE_REGISTRY.values()

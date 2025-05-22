@@ -1,0 +1,39 @@
+
+
+
+
+data_simulated_datasets:
+ type: MemoryDataset
+
+intermediate_data_generated_datasets:
+  type: MemoryDataset
+
+primary_data_simulated_datasets:
+  type: pandas.CSVDataset
+  filepath: data/03_primary/data_all_simulated_datasets.csv
+
+
+
+
+
+anticluster_solvers:
+  type: MemoryDataset
+
+primary_anticluster_results:   # <-- rich list[SolverResults]
+  type: pickle.PickleDataset
+  filepath: data/03_primary/anticluster_results.pkl
+  versioned: true
+
+primary_anticluster_table_pickle:     # <-- handy table for quick view
+  type: pickle.PickleDataset
+  filepath: data/03_primary/anticluster_results_table.pkl
+  versioned: true
+
+primary_anticluster_table_csv:
+  type: pandas.CSVDataset
+  filepath: data/03_primary/anticluster_results_table.csv
+  versioned: true          # keep if you need versioning
+  save_args:
+    index: true            # <<< write the (Multi-)Index
+  load_args:               # optional – helpful when you read it again
+    index_col: 0           # or [0, 1] for a Multi-Index

@@ -2,5 +2,5 @@
 Anticluster package entrypoint.
 """
 from .core import AntiCluster
-from .factory import get_solver, register_solver
+from .solver_factory import get_solver, register_solver
 

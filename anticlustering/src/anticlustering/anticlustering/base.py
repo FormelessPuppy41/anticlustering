@@ -34,7 +34,7 @@ class Solver(BaseEstimator, TransformerMixin, ABC):
         """
         n_samples = X.shape[0]
         if n_samples % self.n_groups != 0:
-            raise ValueError("n_samples must be divisible by n_groups")
+            raise ValueError(f"n_samples must be divisible by n_groups. Got samples: '{n_samples}' and groups: '{self.n_groups}'.")
         self.labels_ = self._init_labels(n_samples)
         self.labels_ = self._optimize(X, self.labels_)
         self.score_ = self.objective(X, self.labels_)

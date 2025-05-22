@@ -2,7 +2,7 @@
 High-level interface: select solver by name and run it.
 """
 import numpy as np
-from .factory import get_solver
+from .solver_factory import get_solver
 
 class AntiCluster:
     """
@@ -27,7 +27,7 @@ class AntiCluster:
             random_state=random_state
         )
 
-    def fit(self, X: np.ndarray) -> 'AntiClustering':
+    def fit(self, X: np.ndarray) -> 'AntiCluster':
         """
         Fit the chosen solver on data X.
         """

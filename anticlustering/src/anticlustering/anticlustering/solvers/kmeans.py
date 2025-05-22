@@ -4,7 +4,7 @@ Reverse k-means anticlustering solver.
 import numpy as np
 from ..base import Solver
 from ..optimizers import optimize_with_exchange
-from ..factory import register_solver
+from ..solver_factory import register_solver
 
 @register_solver('kmeans')
 class KMeansSolver(Solver):

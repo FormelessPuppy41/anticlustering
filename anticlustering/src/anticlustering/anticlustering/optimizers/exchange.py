@@ -2,9 +2,10 @@
 Exchange-based heuristic as a separate component (Composition over Inheritance).
 """
 import numpy as np
+import pandas as pd
 
 def optimize_with_exchange(
-    X: np.ndarray,
+    X: np.ndarray | pd.DataFrame,
     labels: np.ndarray,
     objective: callable,
     max_iter: int = 1
@@ -27,6 +28,9 @@ def optimize_with_exchange(
     labels_opt : ndarray, shape (n_samples,)
         Improved labels.
     """
+    if isinstance(X, pd.DataFrame):
+        X = X.to_numpy()
+        
     best_labels = labels.copy()
     best_score = objective(X, best_labels)
     n_samples = X.shape[0]
