@@ -2,7 +2,7 @@
 Factory and dynamic registration for Solver subclasses.
 """
 from typing import Type, Dict, Callable
-from .base import Solver
+from .base_solver import Solver
 
 from pathlib import Path
 import pkgutil
@@ -27,7 +27,7 @@ def _populate_registry_once() -> None:
     """Import every sub-module of anticlustering.solvers exactly once."""
     if _registry:         # already populated
         return
-    import anticlustering.anticlustering.solvers as _pkg
+    import anticlustering.solvers as _pkg
     package_path = Path(_pkg.__file__).parent
     for mod_info in pkgutil.iter_modules([str(package_path)]):
         import_module(f"{_pkg.__name__}.{mod_info.name}")

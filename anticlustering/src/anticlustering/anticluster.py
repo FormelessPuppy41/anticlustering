@@ -2,7 +2,7 @@
 High-level interface: select solver by name and run it.
 """
 import numpy as np
-from .solver_factory import get_solver
+from .solvers.solver_factory import get_solver
 
 class AntiCluster:
     """

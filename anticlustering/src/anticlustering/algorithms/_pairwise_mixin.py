@@ -1,6 +1,6 @@
 # src/anticlustering/solvers/_pairwise_mixin.py
 import numpy as np
-from ..utils import compute_euclidean_distances
+from ..utils.distance_metrics import compute_euclidean_distances
 
 class PairwiseCacheMixin:
     """Add lazy pair-wise distance caching to a solver."""

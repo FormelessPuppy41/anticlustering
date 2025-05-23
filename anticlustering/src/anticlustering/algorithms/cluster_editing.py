@@ -2,10 +2,10 @@
 Cluster editing anticlustering solver.
 """
 import numpy as np
-from ..base import Solver
-from ..solvers import PairwiseCacheMixin
-from ..optimizers import optimize_with_exchange
-from ..solver_factory import register_solver
+from ..solvers.base_solver import Solver
+from ..anticlustering.solvers import PairwiseCacheMixin
+from ..anticlustering.optimizers import optimize_with_exchange
+from ..solvers.solver_factory import register_solver
 
 @register_solver('cluster_editing')
 class ClusterEditingSolver(PairwiseCacheMixin, Solver):

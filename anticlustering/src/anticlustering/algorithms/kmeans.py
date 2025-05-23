@@ -2,9 +2,9 @@
 Reverse k-means anticlustering solver.
 """
 import numpy as np
-from ..base import Solver
-from ..optimizers import optimize_with_exchange
-from ..solver_factory import register_solver
+from ..solvers.base_solver import Solver
+from ..anticlustering.optimizers import optimize_with_exchange
+from ..solvers.solver_factory import register_solver
 
 @register_solver('kmeans')
 class KMeansSolver(Solver):
