@@ -1,21 +1,17 @@
-# This is a boilerplate parameters config generated for pipeline 'anticluster'
-# using Kedro 0.19.12.
-#
-# Documentation for this file format can be found in "Parameters"
-# Link: https://docs.kedro.org/en/0.19.12/configuration/parameters.html
 
-Anticluster:
-  # shared defaults – can be overridden in catalog or runtime
-  n_groups: 2
-  max_iter: 5
-  random_state: 42
+# parameters_anticluster.yml  (C)
 
-  # a list of solver configurations; each element is passed
-  # straight into core.AntiCluster(**cfg)
+anticluster:
+  store_models: true          # false -> skip storing all_models.pkl
+  k: 2
+  
+  solver_limits:
+    ilp_max_n: 30
+    precluster_max_n: 70
+
+  # which solvers to benchmark (passed into the factory)
   solvers:
-    - solver_name: kmeans
-    - solver_name: cluster_editing
-    # - solver_name: ilp              # keep it here for later
-    # - solver_name: greedy          # keep it here for later
-
-
+    - {solver_name: kmeans}
+    - {solver_name: cluster_editing, method: exchange}
+    - {solver_name: ilp}               # exact, only for small N
+    - {solver_name: ilp, preclustering: true}   # ILP/preclustering

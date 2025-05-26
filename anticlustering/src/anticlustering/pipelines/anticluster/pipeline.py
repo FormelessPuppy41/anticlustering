@@ -1,25 +1,31 @@
-from kedro.pipeline import Pipeline, node, pipeline
-from anticlustering.constants.catalog import Catalog as C
-from anticlustering.constants.parameters import Parameters as P
+from kedro.pipeline import Pipeline, node
 
-from .nodes import instantiate_solvers, solve_all
+from ...constants import Parameters as P, Catalog as C
+from .nodes import benchmark_all
 
 
-def create_pipeline(**kwargs) -> Pipeline:
-    return pipeline([
-        node(
-            instantiate_solvers,
-            inputs=P.Anticluster.ROOT,          # whole dict
-            outputs=C.Anticluster.SOLVER_LIST,
-            name="instantiate_anticluster_solvers_node",
-        ),
-        node(
-            solve_all,
-            inputs=dict(
-                solvers=C.Anticluster.SOLVER_LIST,
-                datasets=C.DataSimulation.INTERMEDIATE_GENERATED_DATASETS,   # same as in your sim pipeline
-            ),
-            outputs=[C.Anticluster.RESULTS, C.Anticluster.TABLE_PICKLE, C.Anticluster.TABLE_CSV],                # e.g. "anticluster_results"
-            name="solve_anticluster_all_node",
-        ),
-    ])
+def create_pipeline(**kwargs):
+    """
+    One-node pipeline:
+        Input  : simulated data dict
+        Outputs: timing table (+ optional all_models pickle)
+    """
+    return Pipeline(
+        [
+            node(
+                func=benchmark_all,
+                inputs=[
+                    C.SIM_DATA,                      # dict of DataFrames
+                    P.Anticluster.K,              # n_clusters
+                    P.Anticluster.SolverLimits.ILP_MAX_N,
+                    P.Anticluster.SolverLimits.PRECLUSTER_MAX_N,
+                    P.Anticluster.STORE_MODELS,
+                ],
+                outputs=[
+                    C.TABLE1,                        # timing table
+                    f"{C.ALL_MODELS}@null",          # optional models
+                ],
+                name="benchmark_all_solvers",
+            )
+        ]
+    )

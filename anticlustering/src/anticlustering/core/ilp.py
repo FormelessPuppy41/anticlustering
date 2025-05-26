@@ -1,11 +1,28 @@
+
+import numpy as np
+
+from .base import AntiCluster
+from ._registry import register_solver
+
+@register_solver('ilp')
+class ILPAntiCluster(AntiCluster):
+    """
+    Anticlustering solver using Integer Linear Programming (ILP).
+    """
+    
+    def fit(self, X):
+        raise NotImplementedError("ILPAntiCluster is not implemented yet.")
+    
+
+# ---------------- ILP Model Implementation --------------- #
 import numpy as np
 import pyomo.environ as pyo
 from itertools import combinations
 
 
-class AnticlusterILP:
+class _ILPAntiClusterModel:
     """
-    AnticlusterILP formulates and solves the anticluster editing problem using Pyomo.
+    _ILPAntiClusterModel formulates and solves the anticluster editing problem using Pyomo.
 
     The anticlustering objective is to partition a set of N items into K groups of equal size,
     such that within-group dissimilarity is maximized (i.e., groups are internally diverse,

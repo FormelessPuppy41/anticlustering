@@ -26,10 +26,11 @@ class SolverResult:
     labels   : np.ndarray
     score    : float
     x_hash   : str                       # only the hash is kept, not X itself
+    run_time : float = field(default=0.0, repr=False)  # optional runtime
 
     @classmethod
-    def from_run(cls, X: np.ndarray, labels: np.ndarray, score: float) -> "SolverResult":
-        return cls(labels=labels, score=score, x_hash=_hash_array(X))
+    def from_run(cls, X: np.ndarray, labels: np.ndarray, score: float, run_time: float) -> "SolverResult":
+        return cls(labels=labels, score=score, x_hash=_hash_array(X), run_time=run_time)
 
 
 # ------------------------------------------------------------------
@@ -101,3 +102,5 @@ class SolverResults:
             for name, (lab, sco) in runs.items()
         }
         return cls(tag=tag, _results=results)
+    
+    

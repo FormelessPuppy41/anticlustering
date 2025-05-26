@@ -1,19 +1,21 @@
 """
-anticlustering
+anticlustering – public API
 """
-from importlib.metadata import version
+from importlib.metadata import version as _pkg_version
 
-from .models.anticluster_ilp import AnticlusterILP
-from .algorithms.exchange import ExchangeAnticluster
-from .algorithms.kmeans import KMeansAnticluster
-from .solvers.solver_factory import get_solver
+from .core.base import AntiCluster
+from .core.kmeans import KMeansAntiCluster
+from .core.cluster_editing import ClusterEditingAntiCluster
+from .core.ilp import ILPAntiCluster
+from .core._registry import get_solver
 
 __all__ = [
-    "AnticlusterILP",
-    "ExchangeAnticluster",
-    "KMeansAnticluster",
+    "AntiCluster",
+    "KMeansAntiCluster",
+    "ClusterEditingAntiCluster",
+    "ILPAntiCluster",
     "get_solver",
     "__version__",
 ]
 
-__version__ = version(__name__)
+#__version__ = _pkg_version(__name__)
