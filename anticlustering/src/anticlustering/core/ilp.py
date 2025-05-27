@@ -46,13 +46,14 @@ class ILPConfig(BaseConfig):
       labels *(0 … K‑1)*.
     """
 
-    n_clusters  : int
-    solver_name : str                   = "gurobi"
-    max_n       : Optional[int]         = None  # max number of items (N) to solve
-    time_limit  : Optional[int]         = None
-    mip_gap     : Optional[float]       = None  # absolute or relative depending on solver
-    warm_start  : Optional[np.ndarray]  = None
-    verbose     : bool                  = False  # print solver output
+    n_clusters      : int
+    solver_name     : str                   = "gurobi"
+    max_n           : Optional[int]         = None  # max number of items (N) to solve
+    time_limit      : Optional[int]         = None
+    mip_gap         : Optional[float]       = None  # absolute or relative depending on solver
+    warm_start      : Optional[np.ndarray]  = None
+    preclustering   : bool                  = False  # whether to use preclustering
+    verbose         : bool                  = False  # print solver output
 
     # future extensions ------------------------------------------------------
     categories  : Optional[np.ndarray]  = None  # 1‑D categorical strata
@@ -71,6 +72,7 @@ class ILPConfig(BaseConfig):
             raise ValueError(
                 f"Problem too large for the exact ILP (N={n_items} > {self.max_items})."
             )
+
 
 
 # ---------- Public solver class -----------------------------------------------------------------
@@ -165,6 +167,152 @@ class ILPAntiCluster(AntiCluster):
     predict = AntiCluster.fit_predict
 
 
+@register_solver("ilp/precluster")
+class PreClusterILPAntiCluster(ILPAntiCluster):
+    """ILPAntiCluster with preclustering enabled.
+
+    This is a convenience subclass that sets the `preclustering` flag to True
+    and inherits all other parameters from ILPAntiCluster.
+    """
+    def __init__(self, config: ILPConfig):
+        super().__init__(config)
+        self.cfg = config
+        if not self.cfg.preclustering:
+            _LOG.warning(
+                "PreClusterILPAntiCluster should be used with preclustering enabled. "
+                "Setting preclustering=True."
+                )
+            self.cfg.preclustering = True
+        self._model: Optional[_ILPAntiClusterModel] = None
+    
+    def fit(
+            self, 
+            X: Optional[np.ndarray] = None,
+            *, 
+            D: Optional[np.ndarray] = None
+        ) -> "PreClusterILPAntiCluster":
+        """Compute anticlusters from data matrix *X* or a pre‑computed *D*.
+
+        Notes
+        -----
+        * ``X`` is expected to be feature matrix (N, p); the Euclidean distance
+          matrix is computed on the fly.
+        * Either ``X`` or ``D`` **must** be supplied.  If both are given, ``D``
+          takes precedence.
+        """
+        if X is None and D is None:
+            raise ValueError("Either X or D must be provided.")
+
+        if D is None:
+            D = get_dissimilarity_matrix(X)
+            _LOG.debug("Dissimilarity matrix computed with shape %s", D.shape)
+        else:
+            if D.ndim != 2 or D.shape[0] != D.shape[1]:
+                raise ValueError("D must be a square distance matrix.")
+        N = D.shape[0]
+
+        # Early exit if N exceeds max_n -------------------------------
+        if self.cfg.max_n is not None and N > self.cfg.max_n:
+            _LOG.warning(
+                "ILP skipped: N=%d exceeds max_n=%d. - returning empty solution", 
+                N, self.cfg.max_n,
+            )
+            self._set_labels(
+                np.full(shape=N, fill_value=-1, dtype=int), 
+                allow_unassigned=True
+            )                               # empty solution
+            self._set_score(float("nan"))   # no score due to size
+            self._set_status("skipped")     # skipped due to size
+            self._set_runtime(float("nan")) # no runtime due to size
+            return self
+
+        # validate & log ----------------------------------------------------
+        self.cfg.validate(N)
+
+        # create preclustering labels and extract forbidden pairs (if needed) -------------------
+        forbidden_pairs: Optional[Sequence[Tuple[int, int]]] = None
+        if self.cfg.preclustering:
+            _LOG.debug("Preclustering enabled; extracting forbidden pairs")
+            forbidden_pairs = PreClustering(
+                D, 
+                n_clusters=self.config.n_clusters
+            ).forbidden_pairs
+            #TODO: Implement a preclustering step here, either a class or a function.
+        
+        # extract forbidden pairs (if needed) -------------------
+        # build model ------------------------------------------------------
+        self._model = _ILPAntiClusterModel(D, self.cfg)
+
+        # warm‑start (optional) -------------------------------------------
+        if self.cfg.warm_start is not None:
+            _LOG.debug("Applying warm‑start solution")
+            self._model.apply_warm_start(self.cfg.warm_start)
+
+        # solve ------------------------------------------------------------
+        _LOG.info("Starting ILP anticlustering: N=%d, K=%d", N, self.cfg.n_clusters)
+        t0 = time.perf_counter()
+        labels, score, status, gap = self._model.solve()
+        runtime = time.perf_counter() - t0
+    
+        # set labels and score ----------------------------------------
+        self._set_labels(labels)
+        self._set_score(score)
+        self._set_status(status, gap)
+        self._set_runtime(runtime)
+
+
+        return self
+
+
+# ---------------- PreClustering Class ----------------------------
+class PreClustering:
+    def __init__(
+            self,
+            D: np.ndarray,
+            *,
+            n_clusters: int = 3,
+        ):
+        self.D                  : np.ndarray                = D
+        self.n_clusters         : int                       = n_clusters
+        self._forbidden_pairs   : Sequence[Tuple[int, int]]
+    
+    @property
+    def forbidden_pairs(self) -> Sequence[Tuple[int, int]]:
+        """
+        Extracts forbidden pairs from the dissimilarity matrix D based on the preclustering logic.
+
+        Returns
+        -------
+        Sequence[Tuple[int, int]]
+            A list of pairs (i, j) that should not be in the same group.
+        """
+        if not hasattr(self, "_forbidden_pairs"):
+            self._forbidden_pairs = self._extract_forbidden_pairs()
+        return self._forbidden_pairs
+    
+    def _extract_forbidden_pairs(self) -> Sequence[Tuple[int, int]]:
+        """
+        Extracts forbidden pairs from the dissimilarity matrix D based on the preclustering logic.
+
+        This method identifies pairs of items that are too dissimilar to be in the same group
+        based on the specified number of clusters.
+
+        Returns
+        -------
+        Sequence[Tuple[int, int]]
+            A list of pairs (i, j) that should not be in the same group.
+        """
+        #TODO: Implement a more sophisticated preclustering step here.
+        N = self.D.shape[0]
+        threshold = np.partition(self.D.flatten(), N * N // (2 * self.n_clusters))[
+            N * N // (2 * self.n_clusters)
+        ]
+        forbidden_pairs = [
+            (i, j) for i in range(N) for j in range(i + 1, N) if self.D[i, j] > threshold
+        ]
+        return forbidden_pairs
+        
+
 
 # ---------------- ILP Model Implementation --------------- #
 class _ILPAntiClusterModel:
@@ -204,12 +352,19 @@ class _ILPAntiClusterModel:
         Pyomo model object representing the ILP.
     """
 
-    def __init__(self, D: np.ndarray, cfg: ILPConfig):
+    def __init__(
+            self, 
+            D                   : np.ndarray, 
+            cfg                 : ILPConfig,
+            *,
+            forbidden_pairs     : Optional[Sequence[Tuple[int, int]]] = None
+        ):
         self.D = D
         self.cfg = cfg
         self.N = D.shape[0]
         self.K = cfg.n_clusters
         self.group_size = self.N // self.K
+        self.forbidden_pairs = forbidden_pairs
 
         self.m = pyo.ConcreteModel()
         self._build_sets()
@@ -316,8 +471,22 @@ class _ILPAntiClusterModel:
 
         These are the core decision variables of the ILP and drive both the objective
         (which aims to maximize within-group dissimilarity) and the transitivity/group-size constraints.
+
+        If `forbidden_pairs` is provided, constraints are added to ensure that
+        certain pairs (i, j) cannot be in the same group (i.e., x[i, j] = 0).
         """
         self.m.x = pyo.Var(self.pairs, within=pyo.Binary)
+
+        if self.forbidden_pairs is not None:
+            # Add constraints to prevent certain pairs from being in the same group
+            for i, j in self.forbidden_pairs:
+                if (i, j) in self.pairs or (j, i) in self.pairs:
+                    # Ensure that x[i, j] = 0 for forbidden pairs
+                    self.m.x[(min(i, j), max(i, j))].fix(0)
+                else:
+                    _LOG.warning(
+                        "Forbidden pair (%d, %d) not in pairs set; skipping.", i, j
+                    )
 
     def x(self, i, j):
         """

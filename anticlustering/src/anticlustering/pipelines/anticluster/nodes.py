@@ -58,8 +58,8 @@ def benchmark_all(
                 aborted=solver.status_ != 'ok',
                 gap=solver.gap_,
             )
-            table_rows.append(dict(N=N, solver=label, runtime=solver.runtime_, status=solver.status_))
-            bucket[label] = solver
+            table_rows.append(row)
+            bucket[label] = row
 
         if store_models:
             model_bank[N] = bucket

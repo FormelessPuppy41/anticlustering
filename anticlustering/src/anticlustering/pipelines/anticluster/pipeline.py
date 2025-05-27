@@ -22,7 +22,7 @@ def create_pipeline(**kwargs):
                 ],
                 outputs=[
                     C.TABLE1,                        # timing table
-                    f"{C.ALL_MODELS}@null",          # optional models
+                    C.ALL_MODELS,          # optional models
                 ],
                 name="benchmark_all_solvers",
             )
