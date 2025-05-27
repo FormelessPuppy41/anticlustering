@@ -17,8 +17,7 @@ def create_pipeline(**kwargs):
                 inputs=[
                     C.SIM_DATA,                      # dict of DataFrames
                     P.Anticluster.K,              # n_clusters
-                    P.Anticluster.SolverLimits.ILP_MAX_N,
-                    P.Anticluster.SolverLimits.PRECLUSTER_MAX_N,
+                    P.Anticluster.SOLVERS,
                     P.Anticluster.STORE_MODELS,
                 ],
                 outputs=[

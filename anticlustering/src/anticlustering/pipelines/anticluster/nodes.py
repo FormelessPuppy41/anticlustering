@@ -2,17 +2,16 @@ import time
 from typing import Dict, Tuple, List, Any
 
 import pandas as pd
-from ...core import get_solver, AntiCluster
+from ...core import get_solver, AntiCluster, BaseConfig, ILPConfig
 
 def benchmark_all(
-    data: Dict[str, pd.DataFrame],
-    n_clusters: int,
-    ilp_max_n: int,
-    precluster_max_n: int,
-    store_models: bool,
+    data            : Dict[str, pd.DataFrame],
+    n_clusters      : int,
+    solvers         : list[dict],
+    store_models    : bool,
 ) -> Tuple[pd.DataFrame, Dict[int, Dict[str, 'AntiCluster']] | None]:
     """
-    Run three solvers on every simulated matrix in *data*.
+    Run the solvers on every simulated matrix in *data*.
 
     Returns
     -------
@@ -30,31 +29,36 @@ def benchmark_all(
         bucket = {}
 
         # ---------- decide which solvers to run ----------
-        configs = [
-            ("ilp", {}),                       # Exact ILP
-            ("ilp", {"preclustering": True}),  # ILP + preclustering
-            ("cluster_editing", {"method": "exchange"}),  # Exchange
-        ]
+        for spec in solvers:
+            name = spec['solver_name'].lower()
+            spec = {k: v for k, v in spec.items() if k != 'solver_name'}
 
-        for name, kwargs in configs:
-            # --- skip according to N limits ---
-            if name == "ilp" and not kwargs.get("preclustering") and N > ilp_max_n:
-                continue
-            if name == "ilp" and kwargs.get("preclustering") and N > precluster_max_n:
-                continue
+            if name == "ilp":
+                cfg = ILPConfig(n_clusters=n_clusters, **spec)
+            else: 
+                cfg = BaseConfig(n_clusters=n_clusters, **spec)
+
+            solver = get_solver(name, config=cfg)
 
             label = (
-                "ILP" if name == "ilp" and not kwargs.get("preclustering")
-                else "ILP/precluster" if kwargs.get("preclustering")
+                "ILP" if name == "ilp" and not spec.get("preclustering")
+                else "ILP/precluster" if spec.get("preclustering")
                 else "Exchange"
             )
 
-            t0 = time.perf_counter()
-            solver = get_solver(name, n_clusters=n_clusters, **kwargs)
             solver.fit(X)
-            runtime = time.perf_counter() - t0
 
-            table_rows.append(dict(N=N, solver=label, runtime=runtime))
+            # Set runtime to nan if it did not finish. That is, labels are not set.
+            row = dict(
+                N=N,
+                solver=label,
+                runtime=solver.runtime_,
+                score=solver.score_,
+                status=solver.status_,
+                aborted=solver.status_ != 'ok',
+                gap=solver.gap_,
+            )
+            table_rows.append(dict(N=N, solver=label, runtime=solver.runtime_, status=solver.status_))
             bucket[label] = solver
 
         if store_models:

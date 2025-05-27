@@ -11,7 +11,3 @@ class Parameters:
         STORE_MODELS   = "params:anticluster.store_models"
         SOLVERS        = "params:anticluster.solvers"   # list of dicts
         K              = "params:anticluster.k"
-
-        class SolverLimits:
-            ILP_MAX_N        = "params:anticluster.solver_limits.ilp_max_n"
-            PRECLUSTER_MAX_N = "params:anticluster.solver_limits.precluster_max_n"

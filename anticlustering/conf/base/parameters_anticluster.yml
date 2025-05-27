@@ -10,8 +10,16 @@ anticluster:
     precluster_max_n: 70
 
   # which solvers to benchmark (passed into the factory)
-  solvers:
-    - {solver_name: kmeans}
-    - {solver_name: cluster_editing, method: exchange}
-    - {solver_name: ilp}               # exact, only for small N
-    - {solver_name: ilp, preclustering: true}   # ILP/preclustering
+  solvers:                  
+    #- solver_name   : kmeans          # all kwargs forwarded to the solver
+    #- solver_name   : cluster_editing
+    #  method        : exchange
+    - solver_name   : ilp
+      time_limit    : 5              # forwarded into ILPConfig
+      mip_gap       : 0.01
+      max_n         : 30
+    #- solver_name   : ilp_precluster             # ILP + preclustering variant
+    #  preclustering : true
+    #  time_limit    : 600
+    #  mip_gap       : 0.05
+    #  max_n         : 70
