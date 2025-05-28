@@ -3,7 +3,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import logging
 import numpy as np
-from typing import Optional, Literal
+from enum import Enum
+from typing import Optional, TypeAlias, Iterable
 
 _LOG = logging.getLogger(__name__)
 
@@ -19,18 +20,42 @@ class BaseConfig:
     random_state: Optional[int] = None
 
 
+class Status(str, Enum):
+    """Solver status codes used across the anticlustering package."""
+
+    optimal   = "optimal"
+    timeout   = "timeout"
+    error     = "error"
+    skipped   = "skipped"
+    heuristic = "heuristic"
+
+    # -------- convenience helpers ------------------------------------
+    @classmethod
+    def from_string(cls, value: str) -> "Status":
+        """Coerce an arbitrary string into a Status enum (raises on unknown)."""
+        try:
+            return cls(value)
+        except ValueError as exc:
+            valid = ", ".join(m.value for m in cls)
+            raise ValueError(f"Unknown status '{value}'. Valid choices: {valid}") from exc
+
+    @classmethod
+    def choices(cls) -> list[str]:
+        """Return the plain-string choices – useful for CLI or argparse."""
+        return [m.value for m in cls]
+    
+
+
 class AntiCluster(ABC):
     """Common interface for all anticlustering solvers."""
 
     def __init__(self, config: BaseConfig):
-        self.config     : BaseConfig                                    = config
-        self._labels    : np.ndarray                        | None      = None
-        self._score     : float                             | None      = None
-        self._runtime   : float                             | None      = None
-        self._status    : Literal[
-            'ok', 'timeout', 'error', 'skipped', 'heuristic'
-            ]                                               | None      = None  # e.g. "ok", "timeout", "error"
-        self._gap       : float                             | None      = None  # e.g. "gap" for ILP solvers
+        self.config     : BaseConfig                   = config
+        self._labels    : np.ndarray       | None      = None
+        self._score     : float            | None      = None
+        self._runtime   : float            | None      = None
+        self._status    : Status           | None      = None  # e.g. "ok", "timeout", "error"
+        self._gap       : float            | None      = None  # e.g. "gap" for ILP solvers
 
     @abstractmethod
     def fit(self, X: np.ndarray | None = None, *, D: np.ndarray | None = None):
@@ -64,11 +89,11 @@ class AntiCluster(ABC):
         return self._runtime
     
     @property
-    def status_(self) -> Literal['ok', 'timeout', 'error', 'skipped', 'heuristic']:
+    def status_(self) -> str:
         """Status of the solver after fitting."""
         if self._status is None:
             raise RuntimeError("Call `.fit()` first!")
-        return self._status
+        return self._status.value if self._status else None
     
     @property
     def gap_(self) -> float | None:
@@ -109,9 +134,13 @@ class AntiCluster(ABC):
             raise ValueError("runtime must be non-negative")
         self._runtime = float(runtime)
 
-    def _set_status(self, status: Literal['ok', 'timeout', 'error', 'skipped', 'heuristic'], gap: float | None = None):
-        if status not in {'ok', 'timeout', 'error', 'skipped', 'heuristic'}:
-            raise ValueError(f"status must be one of 'ok', 'timeout', 'error', 'skipped' or 'heuristic' (got {status})")
+    def _set_status(
+            self, 
+            status  : Status | str,
+            gap     : float | None = None
+            ):
+        if not isinstance(status, Status):
+            status = Status.from_string(status)
         self._status = status
         
         if gap is not None:
