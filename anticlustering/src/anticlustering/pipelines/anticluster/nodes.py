@@ -2,7 +2,7 @@ import time
 from typing import Dict, Tuple, List, Any
 
 import pandas as pd
-from ...core import get_solver, AntiCluster, BaseConfig, ILPConfig
+from ...core import get_solver, AntiCluster, BaseConfig, ILPConfig, ExchangeConfig
 
 def benchmark_all(
     data            : Dict[str, pd.DataFrame],
@@ -35,6 +35,10 @@ def benchmark_all(
 
             if name == "ilp":
                 cfg = ILPConfig(n_clusters=n_clusters, **spec)
+            elif name == "ilp_precluster":
+                cfg = ILPConfig(n_clusters=n_clusters,**spec)
+            elif name == "exchange":
+                cfg = ExchangeConfig(n_clusters=n_clusters, **spec)
             else: 
                 cfg = BaseConfig(n_clusters=n_clusters, **spec)
 
@@ -45,9 +49,9 @@ def benchmark_all(
                 else "ILP/precluster" if spec.get("preclustering")
                 else "Exchange"
             )
-            print(f"Running {label} on N={N}...")
+           
             solver.fit(X)
-            
+
             # Set runtime to nan if it did not finish. That is, labels are not set.
             row = dict(
                 N=N,

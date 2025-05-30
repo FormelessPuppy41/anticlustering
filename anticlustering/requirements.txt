@@ -1,8 +1,50 @@
-ipython>=8.10
-jupyterlab>=3.0
-kedro-datasets>=3.0
-kedro-viz>=6.7.0
-kedro[jupyter]~=0.19.12
-notebook
-scikit-learn~=1.5.1
-setuptools; python_version >= "3.12"
+# ──────────────────────────────────────────────────────────────────────────────
+# Core Kedro stack
+# ──────────────────────────────────────────────────────────────────────────────
+kedro==0.19.12                                              # engine
+kedro-datasets[pandas,plotly,matplotlib]==3.0.0       # IO connectors (CSV, Parquet, SQL…)
+kedro-viz==6.7.0                                            # pipeline graph UI
+parse>=1.19,<2                                              # ← indirect Kedro dep: add explicitly to stop importerror
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Data science / optimisation
+# ──────────────────────────────────────────────────────────────────────────────
+pandas==2.2.3
+scikit-learn==1.6.1
+pyomo==6.9.2
+numpy==2.1.0
+seaborn>=0.13,<0.14        # matches pandas 2.x
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Interactive notebooks
+# ──────────────────────────────────────────────────────────────────────────────
+ipython>=8.18,<9
+jupyterlab>=4.2,<4.3
+notebook>=7.2,<7.3          # pulled in by jupyterlab but kept explicit
+
+# ──────────────────────────────────────────────────────────────────────────────
+# API layer
+# ──────────────────────────────────────────────────────────────────────────────
+fastapi>=0.111,<1
+uvicorn[standard]>=0.22,<0.23   # [standard] pulls in h11, httptools, websockets
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Dev / CI / testing
+# ──────────────────────────────────────────────────────────────────────────────
+pytest>=8,<9
+pytest-cov>=4,<5
+pytest-dotenv>=0.5,<1
+docker>=6,<7                 # python-docker SDK (for local solver images, etc.)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Toolchain
+# ──────────────────────────────────────────────────────────────────────────────
+pip>=24,<26
+setuptools>=69,<70           # consistent build backend
+wheel>=0.43,<1
+
+# --------------------------------------------------------------------------
+# Fan-out pins – stop pip’s resolver from trying hundreds of candidates
+# --------------------------------------------------------------------------
+delta-spark==2.4.0     # released 2025-01-18 – latest that matches PySpark 3.5
+oauthlib==3.2.2        # newest, satisfies every downstream pin

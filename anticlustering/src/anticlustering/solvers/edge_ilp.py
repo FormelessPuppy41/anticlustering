@@ -7,7 +7,7 @@ import logging
 import numpy as np
 import pyomo.environ as pyo
 
-from ..core.base import Status
+from ..core.config import Status, ILPConfig
 
 _LOG = logging.getLogger(__name__)
 
@@ -45,8 +45,9 @@ class _ModelEdgeILPBase:
     # construction -----------------------------------------------------------
     def __init__(
         self,
-        D: np.ndarray,
-        K: int,
+        D                   : np.ndarray,
+        K                   : int,
+        config              : ILPConfig,
         *,
         sense,
         target_degree       : int,
@@ -61,6 +62,7 @@ class _ModelEdgeILPBase:
         self.sense              = sense
         self.target_degree      = target_degree
         self.forbidden_pairs    = {(min(i,j), max(i,j)) for i,j in forbidden_pairs or []}
+        self.cfg                = config
 
         if self.N % K != 0:
             raise ValueError(
@@ -90,15 +92,20 @@ class _ModelEdgeILPBase:
             initialize=range(self.N)
         )
         self.m.PAIRS    = pyo.Set(
-            initialize=[(i, j) for i in range(self.N) for j in range(i + 1, self.N)]
+            dimen=2,
+            initialize=[
+                (i, j) 
+                for i in range(self.N) 
+                for j in range(i + 1, self.N)
+            ]
         )
         self.m.TRIPLES = pyo.Set(
-            dimen=3, initialize=lambda *_:(
-                (i,j,k) 
+            dimen=3, initialize=[
+                (i, j, k)
                 for i in range(self.N)
-                for j in range(i+1, self.N)
-                for k in range(j+1, self.N)
-            )
+                for j in range(i + 1, self.N)
+                for k in range(j + 1, self.N)
+            ],
         )
 
     @property
@@ -337,6 +344,33 @@ class _ModelEdgeILPBase:
         # fall-back: try the most common spelling
         solver.options["MIPGap"] = gap
 
+    def _set_time_limit(self, solver, solver_name:str, time_limit: int):
+        """
+        Set the time limit for the solver.
+
+        Parameters
+        ----------
+        solver : pyo.SolverFactory
+            The Pyomo solver instance.
+        time_limit : int
+            Time limit in seconds.
+        """
+        _TIME_LIMIT_OPTION = {
+            "gurobi": {"TimeLimit"},
+            "highs":  {"time_limit"},
+            "cbc":    {"seconds"},                     # CBC / Coin-OR
+            "cplex":  {"timelimit"},                   # note the space!
+        }
+        s = solver_name.lower()
+        for key, opts in _TIME_LIMIT_OPTION.items():
+            if s.startswith(key):
+                for opt in opts:
+                    solver.options[opt] = int(time_limit)
+                return
+        # fall-back: try the most common spelling
+        solver.options["TimeLimit"] = int(time_limit)
+
+
     # ------------------ Solve ------------------ #
     def solve(self) -> Tuple[
             np.ndarray, 
@@ -380,12 +414,23 @@ class _ModelEdgeILPBase:
 
         # pass common options if supported --------------------------------
         if self.cfg.time_limit is not None:
-            solver.options["TimeLimit"] = int(self.cfg.time_limit)
+            try:
+                self._set_time_limit(solver, self.cfg.solver_name, self.cfg.time_limit)
+            except KeyError:
+                _LOG.warning(
+                    "Solver %s does not support time limits; ignoring.", 
+                    self.cfg.solver_name
+                )
+                pass
         if self.cfg.mip_gap is not None:
             # try both Gurobi/CBC style names; silently ignore if not supported
             try:
                 self._set_mip_gap(solver, self.cfg.solver_name, self.cfg.mip_gap)
             except KeyError:
+                _LOG.warning(
+                    "Solver %s does not support MIP gap; ignoring.", 
+                    self.cfg.solver_name
+                )
                 pass
     
         results = solver.solve(self.m, tee=self.cfg.verbose)
@@ -479,7 +524,6 @@ class _ModelEdgeILPBase:
 # ---------------------------------------------------------------------------
 # Public subclasses
 # ---------------------------------------------------------------------------
-
 class ModelAntiClusterILP(_ModelEdgeILPBase):
     """Exact **max‑diversity** anticlustering ILP.
 
@@ -489,18 +533,20 @@ class ModelAntiClusterILP(_ModelEdgeILPBase):
 
     def __init__(
         self,
-        D: np.ndarray,
-        K: int,
+        D                   : np.ndarray,
+        K                   : int,
+        config              : ILPConfig,
         *,
-        forbidden_pairs: Sequence[Tuple[int, int]] | None = None,
+        forbidden_pairs     : Sequence[Tuple[int, int]] | None = None,
     ) -> None:
         group_size = D.shape[0] // K
         super().__init__(
             D,
             K,
-            sense=pyo.maximize,
-            target_degree=group_size - 1,
-            forbidden_pairs=forbidden_pairs,
+            config          =config,
+            sense           =pyo.maximize,
+            target_degree   =group_size - 1,
+            forbidden_pairs =forbidden_pairs,
         )
 
 
@@ -513,13 +559,19 @@ class ModelPreClusterILP(_ModelEdgeILPBase):
     prune the search space of :class:`AntiClusterILP`.
     """
 
-    def __init__(self, D: np.ndarray, K: int) -> None:
+    def __init__(
+            self, 
+            D       : np.ndarray, 
+            K       : int, 
+            config  : ILPConfig
+        ) -> None:
         super().__init__(
             D,
             K,
-            sense=pyo.minimize,
-            target_degree=K - 1,
-            forbidden_pairs=None,
+            config          =config,
+            sense           =pyo.minimize,
+            target_degree   =K - 1,
+            forbidden_pairs =None,
         )
 
     def extract_group_pairs(self) -> Sequence[Tuple[int, int]]:

@@ -6,44 +6,9 @@ import numpy as np
 from enum import Enum
 from typing import Optional, TypeAlias, Iterable
 
+from .config import BaseConfig, Status
+
 _LOG = logging.getLogger(__name__)
-
-
-@dataclass(slots=True)
-class BaseConfig:
-    """Generic knobs that *any* anticlustering solver may use.
-
-    Concrete subclasses can extend this dataclass in their own modules
-    (e.g.  see :class:`ILPConfig` in *ilp_anticluster_improved.py*).
-    """
-    n_clusters: int
-    random_state: Optional[int] = None
-
-
-class Status(str, Enum):
-    """Solver status codes used across the anticlustering package."""
-
-    optimal   = "optimal"
-    timeout   = "timeout"
-    error     = "error"
-    skipped   = "skipped"
-    heuristic = "heuristic"
-
-    # -------- convenience helpers ------------------------------------
-    @classmethod
-    def from_string(cls, value: str) -> "Status":
-        """Coerce an arbitrary string into a Status enum (raises on unknown)."""
-        try:
-            return cls(value)
-        except ValueError as exc:
-            valid = ", ".join(m.value for m in cls)
-            raise ValueError(f"Unknown status '{value}'. Valid choices: {valid}") from exc
-
-    @classmethod
-    def choices(cls) -> list[str]:
-        """Return the plain-string choices – useful for CLI or argparse."""
-        return [m.value for m in cls]
-    
 
 
 class AntiCluster(ABC):

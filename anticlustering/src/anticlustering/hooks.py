@@ -1,14 +1,16 @@
 from kedro.framework.hooks import hook_impl
-from pyspark import SparkConf
-from pyspark.sql import SparkSession
+#from pyspark import SparkConf
+#from pyspark.sql import SparkSession
 
 
 class SparkHooks:
+    pass
+"""
     @hook_impl
     def after_context_created(self, context) -> None:
-        """Initialises a SparkSession using the config
+        Initialises a SparkSession using the config
         defined in project's conf folder.
-        """
+        
 
         # Load the spark configuration in spark.yaml using the config loader
         parameters = context.config_loader["spark"]
@@ -22,3 +24,4 @@ class SparkHooks:
         )
         _spark_session = spark_session_conf.getOrCreate()
         _spark_session.sparkContext.setLogLevel("WARN")
+"""

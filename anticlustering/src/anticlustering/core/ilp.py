@@ -28,57 +28,12 @@ from ._registry import register_solver
 from ..metrics.dissimilarity_matrix import get_dissimilarity_matrix
 
 from ..solvers.edge_ilp import ModelPreClusterILP, ModelAntiClusterILP
+from .config import ILPConfig
 
 
 _LOG = logging.getLogger(__name__)
 
-# ----------- Configuration dataclass ----------------------------------------------------
-
-@dataclass(slots=True)
-class ILPConfig(BaseConfig):
-    """
-    Tunable parameters for :class:`ILPAntiCluster`. Inherits from :class:`BaseConfig`.
-
-    Notes
-    -----
-    * ``time_limit`` is interpreted in *seconds* and forwarded to the underlying
-      MIP solver if supported (Gurobi, CBC, CPLEX, HiGHS).
-    * ``warm_start`` may come from a fast heuristic such as the exchange
-      algorithm; it should be a 1‑D integer array of length *N* containing group
-      labels *(0 … K‑1)*.
-    """
-
-    n_clusters      : int
-    solver_name     : str                   = "gurobi"
-    max_n           : Optional[int]         = None  # max number of items (N) to solve
-    time_limit      : Optional[int]         = None
-    mip_gap         : Optional[float]       = None  # absolute or relative depending on solver
-    warm_start      : Optional[np.ndarray]  = None
-    preclustering   : bool                  = False  # whether to use preclustering
-    verbose         : bool                  = False  # print solver output
-
-    # future extensions ------------------------------------------------------
-    categories  : Optional[np.ndarray]  = None  # 1‑D categorical strata
-
-    # guard rails ------------------------------------------------------------
-    max_items   : int                   = 30  # warn & abort above this threshold
-
-    def validate(self, n_items: int) -> None:
-        if self.n_clusters <= 1:
-            raise ValueError("n_clusters must be >= 2")
-        if n_items % self.n_clusters:
-            raise ValueError(
-                f"Number of items {n_items} not divisible by K={self.n_clusters}."
-            )
-        if n_items > self.max_items:
-            raise ValueError(
-                f"Problem too large for the exact ILP (N={n_items} > {self.max_items})."
-            )
-
-
-
 # ---------- Public solver class -----------------------------------------------------------------
-
 @register_solver("ilp")
 class ILPAntiCluster(AntiCluster):
     """Exact anticlustering via Integer Linear Programming.
@@ -135,7 +90,7 @@ class ILPAntiCluster(AntiCluster):
                 allow_unassigned=True
             )                               # empty solution
             self._set_score(float("nan"))   # no score due to size
-            self._set_status("skipped")     # skipped due to size
+            self._set_status(Status.skipped)     # skipped due to size
             self._set_runtime(float("nan")) # no runtime due to size
             return self
 
@@ -143,7 +98,7 @@ class ILPAntiCluster(AntiCluster):
         self.cfg.validate(N)
     
         # build model ------------------------------------------------------
-        self._model = ModelAntiClusterILP(D, self.cfg.n_clusters)
+        self._model = ModelAntiClusterILP(D=D, K=self.cfg.n_clusters, config=self.cfg)
 
         # warm‑start (optional) -------------------------------------------
         if self.cfg.warm_start is not None:
@@ -168,7 +123,7 @@ class ILPAntiCluster(AntiCluster):
     predict = AntiCluster.fit_predict
 
 
-@register_solver("ilp/precluster")
+@register_solver("ilp_precluster")
 class PreClusterILPAntiCluster(ILPAntiCluster):
     """ILPAntiCluster with preclustering enabled.
 
@@ -215,7 +170,7 @@ class PreClusterILPAntiCluster(ILPAntiCluster):
         # Early exit if N exceeds max_n -------------------------------
         if self.cfg.max_n is not None and N > self.cfg.max_n:
             _LOG.warning(
-                "ILP skipped: N=%d exceeds max_n=%d. - returning empty solution", 
+                "ILP_PRECLUSTER skipped: N=%d exceeds max_n=%d. - returning empty solution", 
                 N, self.cfg.max_n,
             )
             self._set_labels(
@@ -231,7 +186,11 @@ class PreClusterILPAntiCluster(ILPAntiCluster):
         self.cfg.validate(N)
 
         # create preclustering labels and extract forbidden pairs (if needed) -------------------
-        preclust = ModelPreClusterILP(D=D, K=self.cfg.n_clusters)
+        preclust = ModelPreClusterILP(
+            D       =D, 
+            K       =self.cfg.n_clusters,
+            config  =self.cfg
+        )
         preclust.solve()
         if preclust.status_ != "optimal":
             _LOG.error(
@@ -241,9 +200,10 @@ class PreClusterILPAntiCluster(ILPAntiCluster):
 
         
         anticlust = ModelAntiClusterILP(
-            D=D,
-            K=self.cfg.n_clusters,
-            forbidden_pairs=preclust.extract_group_pairs()
+            D                   =D,
+            K                   =self.cfg.n_clusters,
+            config              =self.cfg,
+            forbidden_pairs     =preclust.extract_group_pairs()
         )
         
         # build model ------------------------------------------------------
