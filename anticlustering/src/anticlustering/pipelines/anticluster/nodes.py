@@ -45,9 +45,9 @@ def benchmark_all(
                 else "ILP/precluster" if spec.get("preclustering")
                 else "Exchange"
             )
-
+            print(f"Running {label} on N={N}...")
             solver.fit(X)
-
+            
             # Set runtime to nan if it did not finish. That is, labels are not set.
             row = dict(
                 N=N,
