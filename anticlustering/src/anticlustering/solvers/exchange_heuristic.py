@@ -3,7 +3,7 @@ import numpy as np
 from scipy.spatial.distance import squareform, pdist
 
 
-from ..core.config import ExchangeConfig
+from ..core.config import ExchangeConfig, Status
 
 import logging
 
@@ -54,7 +54,7 @@ class ExchangeHeuristic:
         current_obj = intra_sum.sum()
         best_obj = current_obj
         no_imp = 0
-        status = "solved"
+        status = Status.solved
 
         for sweep in range(1, self.cfg.max_sweeps + 1):
             improved = False
@@ -87,7 +87,7 @@ class ExchangeHeuristic:
             else:
                 no_imp += 1
                 if no_imp >= self.cfg.patience:
-                    status = "stopped"
+                    status = Status.stopped
                     if self.cfg.verbose:
                         logging.info("Early-stopping: no improvement.")
                     break

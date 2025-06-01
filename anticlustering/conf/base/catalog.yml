@@ -17,6 +17,11 @@ report_data_table1_replication:
   save_args:
     index: true
 
+report_data_graph1_replication:
+  type: matplotlib.MatplotlibDataset
+  filepath: data/08_reporting/replication_graph1.png
+  versioned: true
+
 report_all_models:
   type: pickle.PickleDataset
   filepath: data/06_models/all_models.pkl
@@ -24,3 +29,26 @@ report_all_models:
 
 
 
+# --- VISUALISATION ---------------------------------------------------
+# conf/base/catalog.yml
+visualisation_tables:
+  type: partitions.PartitionedDataset          # NOTE the "s" in Dataset
+  path: data/08_reporting/visualisation/tables
+  dataset: kedro_datasets.pandas.CSVDataset
+  filename_suffix: ".csv"
+
+visualisation_figures:
+  type: partitions.PartitionedDataset
+  path: data/08_reporting/visualisation/figures
+  dataset: kedro_datasets.matplotlib.MatplotlibDataset
+  filename_suffix: ".png"
+
+convergence_table:
+  type: pandas.CSVDataset
+  filepath: data/08_reporting/visualisation/tables/centroid_convergence.csv
+  versioned: true
+
+convergence_figure:
+  type: matplotlib.MatplotlibDataset
+  filepath: data/08_reporting/visualisation/figures/centroid_convergence.png
+  versioned: true

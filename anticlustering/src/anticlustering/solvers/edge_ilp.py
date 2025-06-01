@@ -144,6 +144,9 @@ class _ModelEdgeILPBase:
         return self.m.TRIPLES
 
     # ------------------ Parameters ------------------ #
+    def _init_D(self, m, i, j):
+            return float(m._ref_D[i, j])
+    
     def _build_params(self):
         """
         Define the pairwise dissimilarity matrix as a Pyomo parameter.
@@ -151,11 +154,14 @@ class _ModelEdgeILPBase:
         This is needed for use in the objective function and should match the original matrix D.
         The matrix is assumed symmetric and stored in full (including redundant entries).
         """
+        
+    
+        self.m._ref_D = self.D  # keep a reference to the original matrix
         self.m.D = pyo.Param(
             self.items, 
             self.items,
-            initialize=lambda _m,i,j: float(self.D[i,j]),
-            within      =   pyo.NonNegativeReals
+            initialize  =self._init_D,
+            within      =pyo.NonNegativeReals
         )
 
     def get_dissim(self, i, j):
@@ -177,6 +183,13 @@ class _ModelEdgeILPBase:
         return self.m.D[i, j]
     
     # ------------------ Variables ------------------ #
+    def _init_x(self, m, i, j):
+            """
+            Initialize binary variable x[i, j] for pair (i, j) if it is forbidden.
+            If (i, j) is in the forbidden pairs, return 0 to enforce that they are **not** in the same group.
+            """
+            return 0.0 if (min(i, j), max(i, j)) in self.forbidden_pairs else None
+    
     def _build_vars(self):
         """
         Define binary decision variables x[i, j] for all item pairs (i < j).
@@ -187,26 +200,11 @@ class _ModelEdgeILPBase:
         (which aims to maximize within-group dissimilarity) and the transitivity/group-size constraints.
 
         """
-        def _init_x(m, i, j):
-            """
-            Initialize binary variable x[i, j] for pair (i, j) if it is forbidden.
-            If (i, j) is in the forbidden pairs, return 0 to enforce that they are **not** in the same group.
-            """
-            return 0.0 if (min(i, j), max(i, j)) in self.forbidden_pairs else None
-        
-        def _fix_forbidden_pairs():
-            """
-            Fix the variable x[i, j] to 0 if (i, j) is in the forbidden pairs.
-            This is used to enforce that certain pairs are not allowed to be in the same group.
-            """
-            for (i, j) in self.forbidden_pairs:
-                self.x(i, j).fix(0)
-            
-        
+
         self.m.x = pyo.Var(
             self.pairs, 
             within          =   pyo.Binary, 
-            initialize      =   _init_x
+            initialize      =   self._init_x
         )
 
         #_fix_forbidden_pairs()
@@ -231,6 +229,9 @@ class _ModelEdgeILPBase:
         return self.m.x[(min(i, j), max(i, j))]
     
     # ------------------ Objective ------------------ #
+    def obj_rule(self, m):
+        return sum(self.x(i, j) * self.get_dissim(i, j) for i, j in self.pairs)
+    
     def _build_objective(self):
         """
         Define the ILP objective function: either minimize or maximize total within-group dissimilarity (based on self.sense).
@@ -244,10 +245,7 @@ class _ModelEdgeILPBase:
         By minimizing, it encourages forming groups with small internal dissimilarity, 
         thereby increasing **within**-group homogeneity.
         """
-        def obj_rule(m):
-            return sum(self.x(i, j) * self.get_dissim(i, j) for i, j in self.pairs)
-
-        self.m.OBJ = pyo.Objective(rule=obj_rule, sense=self.sense)
+        self.m.OBJ = pyo.Objective(rule=self.obj_rule, sense=self.sense)
 
     def get_objective_value(self) -> float:
         """
@@ -290,6 +288,17 @@ class _ModelEdgeILPBase:
             self.m.transitivity.add(self.x(i, j) - self.x(i, k) + self.x(j, k) <= 1)
             self.m.transitivity.add(-self.x(i, j) + self.x(i, k) + self.x(j, k) <= 1)
 
+    def _size_rule(self, m, i) -> pyo.Expression:
+            """
+            Helper function to define the group size constraint for item i.
+            It sums the binary variables x[i, j] for all j ≠ i and sets it equal to target_degree.
+            """
+            return sum(
+                self.x(i,j) 
+                for j in self.items 
+                if i != j
+            ) == self.target_degree
+    
     def _add_group_size_constraints(self):
         """
         Add group size constraints to ensure all groups are equal in size. Specifically, 
@@ -302,21 +311,9 @@ class _ModelEdgeILPBase:
         This ensures that each group forms a clique of size target_degree + 1,
         and all N elements are exactly partitioned into K such groups.
         """
-        
-        def size_rule(m, i) -> pyo.Expression:
-            """
-            Helper function to define the group size constraint for item i.
-            It sums the binary variables x[i, j] for all j ≠ i and sets it equal to target_degree.
-            """
-            return sum(
-                self.x(i,j) 
-                for j in self.items 
-                if i != j
-            ) == self.target_degree
-        
         self.m.group_size = pyo.Constraint(
             self.items,
-            rule=size_rule
+            rule=self._size_rule
         )
 
     # ------------------------ warm‑start ----------------------------------

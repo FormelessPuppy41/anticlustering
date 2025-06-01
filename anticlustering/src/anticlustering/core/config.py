@@ -85,6 +85,7 @@ class Status(str, Enum):
     skipped   = "skipped"
     heuristic = "heuristic"
     stopped   = "stopped"
+    solved    = "solved"
 
     # -------- convenience helpers ------------------------------------
     @classmethod

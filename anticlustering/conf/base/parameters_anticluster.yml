@@ -15,18 +15,18 @@ anticluster:
     #- solver_name   : cluster_editing
     #  method        : exchange
     - solver_name   : ilp
-      time_limit    : 5              # forwarded into ILPConfig
+      time_limit    : 1              # forwarded into ILPConfig
       mip_gap       : 0.01
       max_n         : 30
     - solver_name   : ilp_precluster             # ILP + preclustering variant
       preclustering : true
-      time_limit    : 5
+      time_limit    : 1
       mip_gap       : 0.05
       max_n         : 70
     - solver_name   : exchange
-      time_limit    : 5
+      time_limit    : 60
       objective     : diversity
       metric        : euclidean
-      max_sweeps    : 1000
-      patience      : 10
+      max_sweeps    : 100
+      patience      : 1000
       verbose       : true

@@ -21,7 +21,8 @@ def create_pipeline(**kwargs):
                     P.Anticluster.STORE_MODELS,
                 ],
                 outputs=[
-                    C.TABLE1,                        # timing table
+                    C.Visualisation.TABLE1,                        # timing table
+                    C.Visualisation.GRAPH1,                       # convergence graph
                     C.ALL_MODELS,          # optional models
                 ],
                 name="benchmark_all_solvers",
