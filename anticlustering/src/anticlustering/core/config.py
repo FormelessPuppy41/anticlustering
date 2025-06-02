@@ -76,6 +76,15 @@ class ExchangeConfig(BaseConfig):
     time_limit      : Optional[int]         = None  # seconds
 
 
+@dataclass(slots=True)
+class OnlineConfig(BaseConfig):
+    start_date: str = "issue_d"
+    end_date: str = "payed"
+
+    time_limit : Optional[int] = None
+
+
+
 class Status(str, Enum):
     """Solver status codes used across the anticlustering package."""
 

@@ -5,9 +5,25 @@ all_simulated_data:
   filepath: data/03_primary/all_simulated_data.pkl
   versioned: true
 
+kaggle_data_1920:
+  type: pandas.CSVDataset
+  filepath: data/01_raw/kaggle_data_1920.csv
+  versioned: true
 
+kaggle_data_1418:
+  type: pandas.CSVDataset
+  filepath: data/01_raw/kaggle_data_1418.csv
+  versioned: true
 
+kaggle_data_test:
+  type: pandas.CSVDataset
+  filepath: data/01_raw/kaggle_test_data.csv
+  versioned: true
 
+kaggle_data_test_processed:
+  type: pandas.CSVDataset
+  filepath: data/03_primary/kaggle_data_test_processed.csv
+  versioned: true
 
 # --- REPORTS -----------------------------------------------------------
 report_data_table1_replication:

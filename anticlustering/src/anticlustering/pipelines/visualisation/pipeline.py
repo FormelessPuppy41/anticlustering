@@ -11,7 +11,7 @@ def create_pipeline(**kwargs):
                 func=centroid_convergence,
                 inputs=[
                     C.ALL_MODELS,
-                    C.SIM_DATA,
+                    C.Data.SIM_DATA,
                     P.Visualisation.MAIN_SOLVER,
                 ],
                 outputs=[
@@ -23,7 +23,7 @@ def create_pipeline(**kwargs):
             node(
                 func=visualise_first_partitions,
                 inputs=[
-                    C.SIM_DATA,          # same dict used earlier
+                    C.Data.SIM_DATA,          # same dict used earlier
                     C.ALL_MODELS,        # needs store_models=True upstream
                     P.Visualisation.MAIN_SOLVER,   # e.g. "Exchange"
                     P.Visualisation.NUMBER_OF_N,    # e.g. 10

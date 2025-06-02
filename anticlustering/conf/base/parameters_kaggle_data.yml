@@ -1,0 +1,10 @@
+# This is a boilerplate parameters config generated for pipeline 'kaggle_data'
+# using Kedro 0.19.13.
+#
+# Documentation for this file format can be found in "Parameters"
+# Link: https://docs.kedro.org/en/0.19.13/configuration/parameters.html
+
+
+kaggle_data:
+  kaggle_1920: loan_2019_20.csv
+  kaggle_1418: loan_2014_18.csv

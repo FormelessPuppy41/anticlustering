@@ -314,6 +314,65 @@ class PartitionVisualizer:
         ax.grid(True, linestyle=":", linewidth=0.5)
         return ax
     
+    @staticmethod
+    def plot_scores_with_gaps(
+        table: pd.DataFrame,
+        n_clusters: int,
+        *,
+        log_y: bool = False,
+        pct_gap: bool = False
+    ) -> plt.Figure:
+        """
+        Two-panel figure:
+            – upper: score vs N         (optionally log-scale)
+            – lower: gap   vs N         (absolute or % of best score)
+        """
+        import matplotlib.pyplot as plt
+
+        # ---------------------------------------------------------------
+        # 1. merge the baseline scores onto every row
+        # ---------------------------------------------------------------
+        base = (
+            table.loc[table["solver"] == "ILP", ["N", "score"]]
+                .rename(columns={"score": "baseline"})
+        )
+        tbl = (
+            table.merge(base, on="N", how="left", validate="many_to_one")
+                .sort_values(["solver", "N"])
+        )
+
+        tbl["gap"] = tbl["score"] - tbl["baseline"]
+        if pct_gap:
+            tbl["gap"] = 100 * tbl["gap"] / tbl["baseline"]
+
+
+        # ------------------------------------------------------------------
+        # 2. create figure --------------------------------------------------
+        # ------------------------------------------------------------------
+        fig, (ax0, ax1) = plt.subplots(
+            2, 1, figsize=(7, 6), sharex=True,
+            gridspec_kw=dict(height_ratios=[2, 1])
+        )
+
+        # ––– upper panel ––––––––––––––––––––––––––––––––––––––––––––––––
+        for s, grp in tbl.groupby("solver"):
+            ax0.plot(grp["N"], grp["score"], marker="o", label=s)
+        ax0.set_ylabel("Objective value")
+        ax0.set_title(f"Anticlustering objective vs N  (K = {n_clusters})")
+        if log_y:
+            ax0.set_yscale("log")
+        ax0.grid(alpha=.3)
+        ax0.legend(title="Solver", loc="upper left")
+
+        # ––– lower panel ––––––––––––––––––––––––––––––––––––––––––––––––
+        for s, grp in tbl.groupby("solver"):
+            ax1.plot(grp["N"], grp["gap"], marker="o", label=s)
+        ax1.set_xlabel("Problem size N")
+        ax1.set_ylabel("Gap" + (" [%]" if pct_gap else ""))
+        ax1.grid(alpha=.3)
+
+        return fig
+    
     # ------------------------------------------------------------------
     # Convenience dunder methods
     # ------------------------------------------------------------------

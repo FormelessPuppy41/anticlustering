@@ -7,6 +7,10 @@ class Parameters:
         NUM_FEATURES  = "params:simulation.n_features"
         RNG_SEED      = "params:simulation.rng_seed"
 
+    class KaggleData:
+        KAGGLE_1418   = "params:kaggle_data.kaggle_1418"
+        KAGGLE_1920   = "params:kaggle_data.kaggle_1920"
+
     class Anticluster:
         STORE_MODELS   = "params:anticluster.store_models"
         SOLVERS        = "params:anticluster.solvers"           # list of dicts

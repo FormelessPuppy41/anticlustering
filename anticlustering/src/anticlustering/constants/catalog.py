@@ -3,8 +3,17 @@
 class Catalog:
     """String constants for dataset names."""
 
-    SIM_DATA        = "all_simulated_data"
-    ALL_MODELS      = "report_all_models"
+    class Data:
+        KAGGLE_1920         = "kaggle_data_1920"
+        KAGGLE_1418         = "kaggle_data_1418"
+
+        KAGGLE_TEST         = "kaggle_data_test"  # e.g. kaggle_data_1418_test
+        KAGGLE_PROCESSED    = "kaggle_data_test_processed"  # e.g. kaggle_data_1920_processed
+
+        SIM_DATA            = "all_simulated_data"
+    
+    
+    ALL_MODELS              = "report_all_models"
 
     class Visualisation:
         """Dataset names for visualisation outputs."""

@@ -15,7 +15,7 @@ def create_pipeline(**kwargs):
             node(
                 func=benchmark_all,
                 inputs=[
-                    C.SIM_DATA,                      # dict of DataFrames
+                    C.Data.SIM_DATA,                      # dict of DataFrames
                     P.Anticluster.K,              # n_clusters
                     P.Anticluster.SOLVERS,
                     P.Anticluster.STORE_MODELS,

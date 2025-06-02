@@ -14,7 +14,7 @@ def create_pipeline(**kwargs):
                     P.DataSimulation.NUM_FEATURES,
                     P.DataSimulation.RNG_SEED,
                 ],
-                outputs=C.SIM_DATA,          # e.g. "all_simulated_data"
+                outputs=C.Data.SIM_DATA,          # e.g. "all_simulated_data"
                 name="simulate_all_matrices",
             )
         ]
