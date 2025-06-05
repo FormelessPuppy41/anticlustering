@@ -5,7 +5,13 @@ generated using Kedro 0.19.13
 
 from kedro.pipeline import node, Pipeline, pipeline  # noqa
 
-from .nodes import load_kaggle_data, create_test_kaggle_data, process_kaggle_data
+from .nodes import (
+    load_kaggle_data, 
+    create_test_kaggle_data, 
+    process_kaggle_data, 
+    kaggle_df_to_loan_records,
+    loan_records_to_long_df
+)
 
 from ...constants import Parameters as P, Catalog as C
 
@@ -32,8 +38,29 @@ def create_pipeline(**kwargs) -> Pipeline:
         # ),
         node(
             func=process_kaggle_data,
-            inputs=C.Data.KAGGLE_TEST,
+            inputs=[
+                C.Data.KAGGLE_TEST,
+                P.OnlineAnticluster.REDUCE_N,
+                P.OnlineAnticluster.SCALE,
+                P.RNG_NUMBER
+            ],
             outputs=C.Data.KAGGLE_PROCESSED,
             name="load_kaggle_data_node_1920",
+        ),
+        node(
+            func=kaggle_df_to_loan_records,
+            inputs=C.Data.KAGGLE_PROCESSED,
+            outputs=C.Data.KAGGLE_PROCESSED_LOAN_RECORDS,
+            name="kaggle_df_to_loan_records_node",
+        ),
+        node(
+            func=loan_records_to_long_df,
+            inputs=[
+                C.Data.KAGGLE_PROCESSED_LOAN_RECORDS,
+                P.OnlineAnticluster.AS_OF_STR,
+                P.OnlineAnticluster.REGULAR_REPAYMENT
+            ],
+            outputs=C.Data.KAGGLE_PROCESSED_LOAN_RECORDS_LONG,
+            name="loan_records_to_long_df_node",
         ),
     ])

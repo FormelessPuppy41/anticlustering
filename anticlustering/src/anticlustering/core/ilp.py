@@ -28,7 +28,7 @@ from ._registry import register_solver
 from ..metrics.dissimilarity_matrix import get_dissimilarity_matrix
 
 from ..solvers.edge_ilp import ModelPreClusterILP, ModelAntiClusterILP
-from .config import ILPConfig
+from ._config import ILPConfig
 
 
 _LOG = logging.getLogger(__name__)

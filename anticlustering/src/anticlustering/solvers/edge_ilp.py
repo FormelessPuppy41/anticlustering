@@ -7,7 +7,7 @@ import logging
 import numpy as np
 import pyomo.environ as pyo
 
-from ..core.config import Status, ILPConfig
+from ..core._config import Status, ILPConfig
 
 _LOG = logging.getLogger(__name__)
 

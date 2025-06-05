@@ -25,6 +25,17 @@ kaggle_data_test_processed:
   filepath: data/03_primary/kaggle_data_test_processed.csv
   versioned: true
 
+kaggle_data_test_processed_loan_records:
+  type: pickle.PickleDataset
+  filepath: data/03_primary/kaggle_data_test_processed_loan_records.pkl
+  versioned: true
+
+kaggle_data_test_processed_loan_records_long:
+  type: pickle.PickleDataset
+  filepath: data/03_primary/kaggle_data_test_processed_loan_records_long.pkl
+  versioned: true
+
+
 # --- REPORTS -----------------------------------------------------------
 report_data_table1_replication:
   type: pandas.CSVDataset

@@ -1,6 +1,8 @@
 
 # parameters_anticluster.yml  (C)
 
+rng_number: 42
+
 anticluster:
   store_models: true          # false -> skip storing all_models.pkl
   k: 2
@@ -30,3 +32,18 @@ anticluster:
       max_sweeps    : 100
       patience      : 1000
       verbose       : true
+    - solver_name   : online
+      hard_balance_cols: # list of columns to balance hard
+        - "grade"
+        - "sub_grade"
+      size_tolerance      : 10 #int
+      rebalance_frequency : 12 #int
+      stream_start        : "2020-01-01" # str, date in format YYYY-MM-DD. Maybe None
+      stream_end          : "2020-12-31" # str, date in format YYYY-MM-DD. Maybe None
+      
+
+online:
+  as_of_str               : "2020-01-01"  # MUST EQUAL stream_start in online solver!
+  regular_repayment       : true  # bool: true -> use regular repayment
+  reduce_n                : None  # int: reduce n to this number of rows
+  scale                   : false

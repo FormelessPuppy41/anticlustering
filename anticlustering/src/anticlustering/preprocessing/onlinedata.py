@@ -40,6 +40,8 @@ from typing import Dict, List, Tuple, Sequence
 import numpy as np
 import pandas as pd
 
+
+
 # -------------------------------------------------------------------------
 # 1.  DEFAULT COLUMN GROUPS  (override in the constructor if your schema
 #     differs – useful when Lending Club adds/drops columns over the years)
@@ -77,10 +79,52 @@ IDENTIFIER_COLS: Sequence[str] = [
     "id", "member_id", "url", "policy_code", "acc_now_delinq",
 ]
 
+EXCLUDED_SCALING_COLS: Sequence[str] = [
+    "id", "issue_d"
+]
+
 ZIP_COL: str = "zip_code"
 
 TERM_COL: str = "term"
 EMP_LENGTH_COL: str = "emp_length"
+
+
+# -------------------------------------------------------------------------
+# 2.  COLUMNS WE ACTUALLY WANT TO ANALYSE
+# -------------------------------------------------------------------------
+KEEP_COLS: Sequence[str] = [
+    # identifiers
+    "id",
+
+    # loan terms / pricing
+    "loan_amnt", "funded_amnt", "funded_amnt_inv",
+    "term", "int_rate", "installment",
+
+    # internal ratings
+    "grade", "sub_grade",
+
+    # borrower capacity & demographic proxies
+    "emp_length", "home_ownership", "annual_inc",
+    "verification_status", #"purpose", "addr_state",
+
+    # credit history snapshot
+    "fico_range_low", "fico_range_high",
+    "dti", "revol_bal", "revol_util",
+    "open_acc", "total_acc", "delinq_2yrs",
+    "inq_last_6mths", "pub_rec",
+
+    # temporal anchors
+    "issue_d", "earliest_cr_line", "last_pymnt_d", "next_pymnt_d",
+
+    # derived & target vars
+    "credit_age_months",     # created later
+    "loan_status", "total_pymnt", "total_rec_prncp",
+    "total_rec_int", "last_pymnt_amnt",
+
+    # balance-sheet context
+    "tot_cur_bal", "tot_coll_amt", "total_rev_hi_lim",
+]
+
 
 # The bulk numeric columns (loan_amnt, funded_amnt, dti, …) are *not* enumerated
 # here – we detect them dynamically by dtype.
@@ -211,6 +255,10 @@ redundant_cols: List[str] = [
     "hardship_reason",  # no numeric value
     "hardship_status",  # no numeric value
     "hardship_loan_status",  # no numeric value
+    "Unnamed: 0",  # index column, if present
+
+    # Columns dropped for ease:
+    ""
 ]
 
 # -------------------------------------------------------------------------
@@ -227,8 +275,16 @@ class LendingClubPreprocessor:
     one_hot_encode: bool = True
     impute_numeric: bool = True
     windsorise_numeric: bool = False  # clip numeric columns at 1st/99th pct
+    scale_date_cols: bool = True   # set True if you want ordinal-scaled dates
 
+
+    # Scaling
+    scale_numeric: bool = True  # scale numeric columns to zero mean, unit variance
+    scaler_kind: str = "standard"  # "standard" | "minmax" | "robust"
+    rare_threshold: float = 0.005  # threshold for rare categories in one-hot encoding
+    
     # You can override default column groups if your file differs.
+    ordinal_maps: Dict[str, Dict[str, int]] = field(default_factory=lambda: ordinal_maps)
     redundant_cols: Sequence[str] = field(default_factory=lambda: redundant_cols)
     percent_cols: Sequence[str] = field(default_factory=lambda: list(PERCENT_COLS))
     fico_pairs: Sequence[Tuple[str, str]] = field(default_factory=lambda: list(FICO_RANGE_PAIRS))
@@ -236,6 +292,7 @@ class LendingClubPreprocessor:
     ordinal_cols: Sequence[str] = field(default_factory=lambda: list(ORDINAL_COLS))
     categorical_cols: Sequence[str] = field(default_factory=lambda: list(CATEGORICAL_COLS))
     text_cols: Sequence[str] = field(default_factory=lambda: list(TEXT_COLS))
+    exclude_scaling_cols: Sequence[str] = field(default_factory=lambda: list(EXCLUDED_SCALING_COLS))
 
     zip_col: str = ZIP_COL
     term_col: str = TERM_COL
@@ -245,6 +302,19 @@ class LendingClubPreprocessor:
     # Runtime artefacts (learned during `fit`)
     # ------------------------------------------------------------------
     _numeric_medians: Dict[str, float] = field(init=False, default_factory=dict)
+    _dummy_lookup: Dict[str, List[str]] = field(init=False, default_factory=dict)
+    _num_cols_: List[str] = field(init=False, default_factory=list)
+    _scaler_: object | None = field(init=False, default=None)
+
+
+    def __post_init__(self):
+        self.categorical_cols = [
+            c for c in self.categorical_cols if c not in self.ordinal_maps
+        ]
+        
+        # ------------------------------------------------------------------
+        self.keep_cols = set(KEEP_COLS)
+        
 
     # ==================================================================
     # sklearn‑compatible public API
@@ -256,6 +326,49 @@ class LendingClubPreprocessor:
         numeric_cols = df.select_dtypes(include=[np.number]).columns
         if self.impute_numeric:
             self._numeric_medians = df[numeric_cols].median(numeric_only=True).to_dict()
+        
+        if self.one_hot_encode:
+            self._build_dummy_lookup(df)
+        
+        # ------------------------------------------------------------------
+        extra = [c for c in df.columns if c not in self.keep_cols]
+        self.redundant_cols = extra.copy()           # start with everything un-kept
+
+        # date columns NOT kept => their *_ord copy is also redundant
+        for col in df.columns:
+            if col not in self.keep_cols:
+                self.redundant_cols.append(f"{col}_ord")
+
+        if self.scale_numeric:
+            clean = (
+                df.pipe(self._process_percent_cols)
+                .pipe(self._process_term_and_emp_length)
+                .pipe(self._process_numeric)
+                .pipe(self._process_fico_ranges)
+                .pipe(self._process_dates)
+                .pipe(self._dates_to_ordinal)
+                .pipe(self._process_ordinal)
+                .pipe(self._encode_semantic_ordinals)
+                .pipe(lambda x: x)  # no cat/dummy yet
+            )
+            print('clean\n', clean.head(10))  # debug output
+            self._num_cols_ = [
+                c for c in clean.select_dtypes(include=[np.number]).columns
+                if not set(clean[c].dropna().unique()).issubset({0, 1})
+            ]
+            # drop any columns the user wants excluded
+            self._num_cols_ = [
+                c for c in self._num_cols_ if c not in self.exclude_scaling_cols
+            ]
+
+            from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler
+            scaler_cls = {
+                "standard": StandardScaler,
+                "robust": RobustScaler,
+                "minmax": MinMaxScaler,
+            }[self.scaler_kind]
+            self._scaler_ = scaler_cls().fit(clean[self._num_cols_])
+            print('df \n', df)
         return self
 
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -270,14 +383,18 @@ class LendingClubPreprocessor:
         out = self._process_numeric(out)
         out = self._process_fico_ranges(out)
         out = self._process_dates(out)
+        out = self._dates_to_ordinal(out)  # add ordinal date columns if needed
         out = self._process_ordinal(out)
+        out = self._encode_semantic_ordinals(out)
         out = self._process_categoricals(out)
         out = self._process_zip(out)
-        out = self._process_text(out)
+        
         out = self._derive_features(out)
         out = self._impute(out)
-        out = self._final_cast(out)
+        out = self._scale_numeric(out)  # apply fitted scaler to numeric cols
+        out = self._process_text(out)
         out = self._drop_redundant_cols(out)
+        out = self._final_cast(out)
 
         return out
 
@@ -395,6 +512,22 @@ class LendingClubPreprocessor:
             delta = out["issue_d"] - out["earliest_cr_line"]
             out["credit_age_months"] = delta.dt.days / 30.44  # approximate month
         return out
+    
+    def _dates_to_ordinal(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        If scale_date_cols=True, add <col>_ord numeric columns
+        (days since 1970-01-01) so they take part in scaling.
+        """
+        if not self.scale_date_cols:
+            return df
+
+        out = df.copy()
+        for col in self.date_cols:
+            if col in out.columns and col in self.keep_cols:
+                # convert nan-safe to integer nanoseconds → days
+                out[col] = pd.to_datetime(out[col], errors="coerce").view("int64") // 86_400_000_000_000
+                #out[f"{col}_ord"] = out[col].view("int64") // 86_400_000_000_000
+        return out
 
     # ----- 6. ordinal grades ------------------------------------------------
     def _process_ordinal(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -406,16 +539,51 @@ class LendingClubPreprocessor:
             sub_map = {f"{g}{n}": 5 * (i - 1) + n for i, g in enumerate("ABCDEFG", start=1) for n in range(1, 6)}
             out["sub_grade"] = out["sub_grade"].map(sub_map).astype(float)
         return out
+    
+    def _encode_semantic_ordinals(self, df: pd.DataFrame) -> pd.DataFrame:
+        out = df.copy()
+        for col, mapping in self.ordinal_maps.items():
+            if col not in out.columns or col not in self.keep_cols:
+                continue
+            out[col] = (
+                out[col].astype(str).str.strip().str.lower()
+                .map(mapping)
+                .astype("Int8")
+            )
+        return out
+
 
     # ----- 7. categoricals --------------------------------------------------
     def _process_categoricals(self, df: pd.DataFrame) -> pd.DataFrame:
         out = df.copy()
-        cats = [c for c in self.categorical_cols if c in out.columns]
+        cats = [c for c in self.categorical_cols if c in out.columns and c in self.keep_cols]
+
+        # map strings -> lower/strip
         out[cats] = out[cats].apply(lambda col: col.str.lower().str.strip())
+
         if self.one_hot_encode and cats:
-            dummies = pd.get_dummies(out[cats], dummy_na=True, dtype="uint8")
-            out = pd.concat([out.drop(columns=cats), dummies], axis=1)
+            # training-aware re-cast
+            for col, cat_list in self._dummy_lookup.items():
+                if col not in out.columns:
+                    continue
+                out[col] = np.where(out[col].isin(cat_list), out[col], "other")
+                out[col] = pd.Categorical(out[col], categories=cat_list)
+
+            dummies = pd.get_dummies(
+                out[self._dummy_lookup.keys()], prefix_sep="=", dtype="uint8"
+            )
+            dummies = dummies.reindex(
+                columns=self._get_dummy_columns(), fill_value=0
+            )
+            out = pd.concat([out.drop(columns=self._dummy_lookup.keys()), dummies], axis=1)
         return out
+
+    def _get_dummy_columns(self) -> List[str]:
+        cols: List[str] = []
+        for col, cats in self._dummy_lookup.items():
+            cols.extend([f"{col}={c}" for c in cats])
+        return cols
+
 
     # ----- 8. ZIP processing ------------------------------------------------
     def _process_zip(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -483,7 +651,33 @@ class LendingClubPreprocessor:
             out = out.drop(columns=cols_to_drop, errors="ignore")
         return out
     
+    # --------------------------------------------------
+    def _build_dummy_lookup(self, df: pd.DataFrame) -> None:
+        for col in self.categorical_cols:
+            if col not in df.columns or col not in self.keep_cols:
+                continue
+            freq = (
+                df[col].astype(str).str.strip().str.lower().value_counts(normalize=True)
+            )
+            major = freq[freq >= self.rare_threshold].index.tolist()
+            cats = sorted(major) + ["other"]          # deterministic order
+            self._dummy_lookup[col] = cats
 
+    # ----- 11-bis. numeric scaling ------------------------------------------
+    def _scale_numeric(self, df: pd.DataFrame) -> pd.DataFrame:
+        if not self.scale_numeric or self._scaler_ is None:
+            return df
+        out = df.copy()
+
+        # keep only columns that still exist
+        cols = [c for c in self._num_cols_ if c in out.columns]
+        if cols:
+            out[cols] = self._scaler_.transform(out[cols])
+        return out
+
+
+
+    
 # ==================================================================
 # Kedro node wrapper
 # ==================================================================
@@ -496,6 +690,8 @@ def preprocess_node(
         one_hot_encode: bool = True,
         impute_numeric: bool = True,
         windsorise_numeric: bool = False,
+        scale_numeric: bool = True,
+        scaler_kind: str = "standard",
         percent_cols: Sequence[str] = PERCENT_COLS,
         fico_pairs: Sequence[Tuple[str, str]] = FICO_RANGE_PAIRS,
         date_cols: Sequence[str] = DATE_COLS,
@@ -514,6 +710,8 @@ def preprocess_node(
         one_hot_encode=one_hot_encode,
         impute_numeric=impute_numeric,
         windsorise_numeric=windsorise_numeric,
+        scale_numeric=scale_numeric,
+        scaler_kind=scaler_kind,
         percent_cols=percent_cols,
         fico_pairs=fico_pairs,
         date_cols=date_cols,

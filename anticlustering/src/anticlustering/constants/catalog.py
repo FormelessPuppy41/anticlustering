@@ -7,8 +7,10 @@ class Catalog:
         KAGGLE_1920         = "kaggle_data_1920"
         KAGGLE_1418         = "kaggle_data_1418"
 
-        KAGGLE_TEST         = "kaggle_data_test"  # e.g. kaggle_data_1418_test
-        KAGGLE_PROCESSED    = "kaggle_data_test_processed"  # e.g. kaggle_data_1920_processed
+        KAGGLE_TEST                         = "kaggle_data_test"  # e.g. kaggle_data_1418_test
+        KAGGLE_PROCESSED                    = "kaggle_data_test_processed"  # e.g. kaggle_data_1920_processed
+        KAGGLE_PROCESSED_LOAN_RECORDS       = "kaggle_data_test_processed_loan_records"  # e.g. kaggle_data_1920_processed_loan_records
+        KAGGLE_PROCESSED_LOAN_RECORDS_LONG  = "kaggle_data_test_processed_loan_records_long"  # e.g. kaggle_data_1920_processed_loan_records_long
 
         SIM_DATA            = "all_simulated_data"
     

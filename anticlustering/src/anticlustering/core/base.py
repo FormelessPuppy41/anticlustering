@@ -6,7 +6,7 @@ import numpy as np
 from enum import Enum
 from typing import Optional, TypeAlias, Iterable
 
-from .config import BaseConfig, Status
+from ._config import BaseConfig, Status
 
 _LOG = logging.getLogger(__name__)
 

@@ -1,8 +1,8 @@
 
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Optional, Sequence
 import numpy as np
 
 
@@ -78,10 +78,22 @@ class ExchangeConfig(BaseConfig):
 
 @dataclass(slots=True)
 class OnlineConfig(BaseConfig):
-    start_date: str = "issue_d"
-    end_date: str = "payed"
+    """Streaming-specific knobs (inherits common fields from OnlineConfig stub)."""
+    hard_balance_cols       : Sequence[str] = ("grade", "sub_grade")
+    size_tolerance          : int = 1
+    rebalance_frequency     : int = 3           # months; 0 ⇒ never
+    stream_start            : str | None = None       # ISO date
+    stream_end              : str | None = None
 
-    time_limit : Optional[int] = None
+    numeric_feature_columns : Sequence[str] = field(default_factory=tuple)
+    feature_weights         : dict[str, float] = field(
+        default_factory=lambda: {
+            "grade"     : 1.0,
+            "sub_grade" : 1.0,
+            "loan_amnt" : 1.0,
+            "annual_inc": 1.0,
+        }
+    )
 
 
 

@@ -5,7 +5,7 @@ from typing import Dict, Tuple, List, Any
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from ...core import get_solver, AntiCluster, BaseConfig, ILPConfig, ExchangeConfig
+from ...core import get_solver, AntiCluster, BaseConfig, ILPConfig, ExchangeConfig, OnlineConfig
 from ...visualisation import PartitionVisualizer
 
 def benchmark_all(
@@ -43,6 +43,8 @@ def benchmark_all(
                 cfg = ILPConfig(n_clusters=n_clusters,**spec)
             elif name == "exchange":
                 cfg = ExchangeConfig(n_clusters=n_clusters, **spec)
+            elif name == "online":
+                cfg = OnlineConfig(n_clusters=n_clusters, **spec)
             else: 
                 cfg = BaseConfig(n_clusters=n_clusters, **spec)
 

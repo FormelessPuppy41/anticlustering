@@ -3,7 +3,7 @@ import numpy as np
 from scipy.spatial.distance import squareform, pdist
 
 
-from ..core.config import ExchangeConfig, Status
+from ..core._config import ExchangeConfig, Status
 
 import logging
 

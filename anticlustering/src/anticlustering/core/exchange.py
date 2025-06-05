@@ -6,7 +6,7 @@ import numpy as np
 from .base import AntiCluster
 from ._registry import register_solver
 
-from .config import ExchangeConfig
+from ._config import ExchangeConfig
 from ..solvers.exchange_heuristic import ExchangeHeuristic
 from ..metrics.dissimilarity_matrix import get_dissimilarity_matrix
 
