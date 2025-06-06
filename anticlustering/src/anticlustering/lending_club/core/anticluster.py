@@ -31,7 +31,7 @@ from typing import Dict, Iterable, List, Sequence, Tuple, Callable
 import numpy as np
 
 from .loan import LoanRecord, LoanStatus
-from .features import vectorise as default_feature_vector
+from .features import vectorise_loan as default_feature_vector
 
 # --------------------------------------------------------------------------- #
 #                               Anticluster class                             #

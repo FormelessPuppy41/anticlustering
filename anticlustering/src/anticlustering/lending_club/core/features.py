@@ -32,7 +32,7 @@ def _parse_term(term: str | int) -> int:
     """' 36 months' → 36"""
     if isinstance(term, int):
         return term
-    return int(str(term).strip().split()[0])
+    return int(str(term).strip().split(".")[0])
 
 
 def _parse_date(val: Any):
@@ -76,8 +76,18 @@ _NUMERIC_ATTRS: List[str] = [
     "annual_inc",
 ]
 
+def _scale_loan(loan: LoanRecord) -> LoanRecord:
+    raise NotImplementedError
+
+def _weight_loan(loan: LoanRecord) -> LoanRecord:
+    """
+    Apply a feature weight vector to the loan record.
+    This is a placeholder for future implementation.
+    """
+    raise NotImplementedError
+
 #TODO: Add a scaler and a feature weight vector to this module.
-def vectorise(loan: LoanRecord) -> np.ndarray:
+def vectorise_loan(loan: LoanRecord) -> np.ndarray:
     """
     Turn a ``LoanRecord`` into a **1-D numpy array** of numeric features.
     Online/offline solvers can plug this into distance or variance
@@ -87,3 +97,10 @@ def vectorise(loan: LoanRecord) -> np.ndarray:
     the declared order.  Adjust `_NUMERIC_ATTRS` if you need more.
     """
     return np.fromiter((getattr(loan, a) for a in _NUMERIC_ATTRS), dtype=float)
+
+
+def vectorise_list_loans(loans: Iterable[LoanRecord]) -> np.ndarray:
+    """
+    Turn a list of ``LoanRecord`` into a **2-D numpy array** of numeric features.
+    """
+    return np.array([vectorise_loan(loan) for loan in loans], dtype=float)

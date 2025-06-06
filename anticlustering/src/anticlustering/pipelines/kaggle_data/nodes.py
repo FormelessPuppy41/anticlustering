@@ -61,16 +61,19 @@ def process_kaggle_data(
         ``percentage_columns``, ``log_numeric_columns``,
         ``special_numeric_columns``, ``keep_columns``.
     """
+    print(df)
     #  ---- Unpack the kaggle column yml dict --------------------------------------------
-    percentage_cols         : list  = kaggle_columns["percentage_columns"]
-    log_numeric_cols        : list  = kaggle_columns["log_numeric_columns"]
-    special_numeric_cols    : list  = kaggle_columns["special_numeric_columns"]
-    date_cols               : list  = kaggle_columns["date_columns"]
-    ordinal_cols            : dict  = kaggle_columns["ordinal_columns"]
-    categorical_cols        : list  = kaggle_columns["categorical_columns"]
-    passthrough_cols        : list  = kaggle_columns["passthrough_columns"]
-    keep_cols               : list  = kaggle_columns["keep_columns"]
+    percentage_cols         : list  = kaggle_columns["percentage_columns"]      or []
+    log_numeric_cols        : list  = kaggle_columns["log_numeric_columns"]     or []
+    special_numeric_cols    : list  = kaggle_columns["special_numeric_columns"] or []
+    date_cols               : list  = kaggle_columns["date_columns"]            or []
+    ordinal_cols            : dict  = kaggle_columns["ordinal_columns"]         or {}
+    categorical_cols        : list  = kaggle_columns["categorical_columns"]     or []
+    passthrough_cols        : list  = kaggle_columns["passthrough_columns"]     or []
+    keep_cols               : list  = kaggle_columns["keep_columns"]            or []
     # --------------------------------------------
+
+    _LOG.info("Obtained Kaggle columns from YAML: %s", kaggle_columns)
 
     if reduce_n == "None" or reduce_n is None or reduce_n == "0" or reduce_n == 0 or reduce_n == "":
         reduce_n = None
@@ -83,9 +86,10 @@ def process_kaggle_data(
     numeric_feature_cols = set(keep_cols.copy()) \
         - set(passthrough_cols) - set(date_cols) - set(percentage_cols) \
         - set(ordinal_cols.keys()) - set(categorical_cols) - set(special_numeric_cols)
+    
     numeric_feature_cols = list(numeric_feature_cols)
     
-    return preprocess_node(
+    df =  preprocess_node(
         df,
         keep_columns            =keep_cols,
         numeric_feature_columns =numeric_feature_cols,
@@ -99,6 +103,8 @@ def process_kaggle_data(
         log_numeric_columns     =log_numeric_cols,
         passthrough_columns     =passthrough_cols
     )
+    print(df)
+    return df
     
 
 
@@ -128,19 +134,18 @@ def kaggle_df_to_loan_records(df: pd.DataFrame) -> List[LoanRecord]:
     parsed = joblib.Parallel(n_jobs=-1, backend="loky")(
         joblib.delayed(_safe_parse)(row) for row in rows_iter
     )
-
+    
     # ── separate successes from failures ───────────────────────────────
-    records: list[LoanRecord] = []
-    skipped_count = 0
+    records : list[LoanRecord] = []
+    errors  : list[tuple[str, Exception]] = []
     for item in parsed:
         if isinstance(item, LoanRecord):
             records.append(item)
         else:
-            skipped_count += 1
-            _LOG.debug("Row skipped: %s", item)   # detailed trace at DEBUG
+            errors.append(item)
 
-    if skipped_count:
-        _LOG.warning("Skipped %d rows during conversion.", skipped_count)
+    if errors:
+        _LOG.warning("Encountered %d errors while parsing rows: %s", len(errors), errors[:5])
 
     _LOG.info("Converted %d rows → LoanRecord objects.", len(records))
     return records

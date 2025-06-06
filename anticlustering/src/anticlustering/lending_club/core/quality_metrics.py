@@ -25,14 +25,13 @@ import numpy as np
 import pandas as pd
 
 from ..core.anticluster import AnticlusterManager
-from ..core.features import vectorise as default_feature_vector
+from ..core.features import vectorise_loan as default_feature_vector
 from ..core.loan import LoanRecord
 
 
 # --------------------------------------------------------------------------- #
 #                       -----  Categorical balance  -----                     #
 # --------------------------------------------------------------------------- #
-
 
 def balance_score_categorical(
     manager         : AnticlusterManager,

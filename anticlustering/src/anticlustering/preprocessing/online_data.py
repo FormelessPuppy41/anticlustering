@@ -125,6 +125,17 @@ class NamedStandardScaler(StandardScaler):
 # --------------------------------------------------------------------------- #
 #                             Main pre-processor                              #
 # --------------------------------------------------------------------------- #
+
+#
+# TODO:
+#
+# - What i think should be done is:
+# - 1) Make this a general preprocessor. Just formatting, no scaling (nor log)
+# - 2) Add somewhere in the online anticluster pipeline an option to scale features (vectorised)
+# - 3) This way, the input to the Stream/Simulator/Amortization is always the original data (scales).
+# - 3) Which allows us to keep interpretability of the original data. But we can still scale it for the distance metric by
+# - 3) scaling the features within the OnlineAnticluster class. (This must be vectorised, not per loan record to avoid runtime issues.)
+
 class LendingClubPreprocessor(BaseEstimator, TransformerMixin):
     """
     Clean & scale Lending Club data with fine-grained column control.
@@ -187,7 +198,6 @@ class LendingClubPreprocessor(BaseEstimator, TransformerMixin):
         self.passthrough_columns        = passthrough_columns or []
         self.special_numeric_columns    = special_numeric_columns or []   
         self.log_numeric_columns        = log_numeric_columns or []
-        self.log_numeric_columns = [] #TODO: Fix this. 
         
         if not numeric_feature_columns:
             raise ValueError("numeric_feature_columns must be provided.")
@@ -303,6 +313,7 @@ class LendingClubPreprocessor(BaseEstimator, TransformerMixin):
             | set(self.categorical_columns)
             | set(self.passthrough_columns)
             | set(self.special_numeric_columns)
+            | set(self.log_numeric_columns)
         )
         residual = [c for c in X.columns if c not in tagged]
         self._num_feats = X[residual].select_dtypes(include=["number"]).columns.tolist()
