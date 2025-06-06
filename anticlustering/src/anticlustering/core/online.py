@@ -234,8 +234,13 @@ class OnlineAntiCluster(AntiCluster):
         """
         if isinstance(X, pd.DataFrame):
             return [LoanRecord.from_dict(rec) for rec in X.to_dict(orient="records")]
-        # assume Iterable[LoanRecord]
-        return list(X)
+        if isinstance(X, list) and isinstance(X[0], LoanRecord):
+            # already a list of LoanRecord instances
+            return X
+        raise TypeError(
+            f"Expected an iterable of LoanRecord instances or a DataFrame, "
+            f"got {type(X)} instead."
+        )
 
     @staticmethod
     def _parse_date(date_str: str | None):

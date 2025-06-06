@@ -84,8 +84,8 @@ def _parse_date(arr):
     """Messy strings → days since Unix epoch (float, NaN allowed)."""
     flat = _as_1d(arr)
     dt   = pd.to_datetime(pd.Series(flat), errors="coerce", dayfirst=True)
-    out  = (dt.astype("int64") // 86_400_000_000_000).astype(float)  # days
-    return out.to_numpy().reshape(-1, 1)
+    print(dt)
+    return dt
 
 def _parse_term(arr):
     """Extract integer months from term column: ' 36 months' -> 36."""
@@ -96,6 +96,22 @@ def _parse_log(arr):
     """Apply log1p to numeric values, preserving NaNs."""
     flat = _as_1d(arr)
     return np.log1p(np.nan_to_num(flat, nan=0.0)).reshape(-1, 1)
+
+def _passthrough_date(arr):
+    """Passthrough date column, converting to datetime."""
+    return _as_1d(arr)
+
+def _add_date_twins(df: pd.DataFrame, date_cols: list[str]) -> pd.DataFrame:
+    """
+    • Ensures each date column is converted to datetime *in place*.
+    • Adds <col>_numeric containing days-since-epoch (float) for ML pipeline.
+    """
+    for col in date_cols:
+        df[col] = pd.to_datetime(df[col], errors="coerce", dayfirst=True)
+        df[f"{col}_numeric"] = (
+            df[col].astype("int64") // 86_400_000_000_000
+        ).astype(float)
+    return df
 
 
 class NamedFunctionTransformer(FunctionTransformer):
@@ -187,6 +203,7 @@ class LendingClubPreprocessor(BaseEstimator, TransformerMixin):
         self.passthrough_columns        = passthrough_columns or []
         self.special_numeric_columns    = special_numeric_columns or []   
         self.log_numeric_columns        = log_numeric_columns or []
+        self.log_numeric_columns = [] #TODO: Fix this. 
         
         if not numeric_feature_columns:
             raise ValueError("numeric_feature_columns must be provided.")
@@ -234,7 +251,7 @@ class LendingClubPreprocessor(BaseEstimator, TransformerMixin):
     ) -> Tuple[np.ndarray, Optional[pd.Series]]:
         if self._pipeline is None:
             raise RuntimeError("Must call `fit` before `transform`.")
-
+        
         X = self._select_and_validate(X)
         features = self._pipeline.transform(X)
         y = None if target is None else X[target].values
@@ -406,18 +423,10 @@ class LendingClubPreprocessor(BaseEstimator, TransformerMixin):
                     ),
                     NamedStandardScaler(feature_name=col)
                 )
+                transformers.append((f"date_{col}", date_pipe, [col]))
             else:
-                date_pipe = make_pipeline(
-                    NamedFunctionTransformer(
-                        func=_parse_date,
-                        feature_name=col
-                    ),
-                    NamedFunctionTransformer(
-                        func=lambda a: _ensure_2d(np.nan_to_num(a, nan=self.numeric_impute_value)),
-                        feature_name=col
-                    )
-                )
-            transformers.append((f"date_{col}", date_pipe, [col]))
+                self.passthrough_columns.append(col)
+
 
         if self.ordinal_columns:
             for col, order in self.ordinal_columns.items():

@@ -13,12 +13,17 @@ Author: Thesis project – Erasmus University Rotterdam
 from __future__ import annotations
 
 import datetime as _dt
+from dateutil import parser as _p
 import pandas as pd
+import numpy as np
 import enum
 import math
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Optional
+import logging
+
+_LOG = logging.getLogger(__name__)
 
 __all__ = [
     "LoanStatus",
@@ -219,68 +224,90 @@ class LoanRecord:
         Date columns are in format ``"Jan‑2015"`` → parsed via `datetime.strptime`.
         """
         return cls(
-            loan_id         =   str(row["id"]),
-            loan_amnt       =   float(row["loan_amnt"]),
-            term_months     =   int(row["term"]),
-            issue_date      =   pd.to_datetime(row["issue_d"]),
-            int_rate        =   float(row["int_rate"]),
-            grade           =   str(row["grade"]),
-            sub_grade       =   str(row["sub_grade"]),
-            last_pymnt_date =   pd.to_datetime(row["last_pymnt_d"]),
+            loan_id         =   str(                row["id"]),
+            loan_amnt       =   float(              row["loan_amnt"]),
+            term_months     =   int(                row["term"]),
+            issue_date      =   LoanRecord._parse_date(row["issue_d"]),
+            int_rate        =   float(              row["int_rate"]),
+            grade           =   str(                row["grade"]),
+            sub_grade       =   str(                row["sub_grade"]),
+            last_pymnt_date =   LoanRecord._parse_date(row["last_pymnt_d"]),
             loan_status     =   LoanStatus.from_raw(row["loan_status"]),
-            total_rec_prncp =   float(row["total_rec_prncp"]),
-            recoveries      =   float(row["recoveries"]),
-            total_rec_int   =   float(row["total_rec_int"]),
-            annual_inc      =   float(row["annual_inc"])
-        )
-        return cls(
-            loan_id         =   row["id"] or row.get("loan_id", ""),
-            loan_amnt       =   Decimal(row["loan_amnt"]),
-            term_months     =   int(row["term"].strip().split()[0]),
-            issue_date      =   _parse_date(row["issue_d"]),
-            int_rate        =   Decimal(row["int_rate"].strip("%")),
-            grade           =   str(row["grade"]),
-            sub_grade       =   str(row["sub_grade"]),
-            last_pymnt_date =   _parse_date(row.get("last_pymnt_d", "")),
-            loan_status     =   LoanStatus.from_raw(row["loan_status"]),
-            total_rec_prncp =   Decimal(row.get("total_rec_prncp", "0")),
-            recoveries      =   Decimal(row.get("recoveries", "0")),
-            total_rec_int   =   Decimal(row.get("total_rec_int", "0")),
-            annual_inc      =   float(row["annual_inc"])
+            total_rec_prncp =   float(              row["total_rec_prncp"]),
+            recoveries      =   float(              row["recoveries"]),
+            total_rec_int   =   float(              row["total_rec_int"]),
+            annual_inc      =   float(              row["annual_inc"])
         )
 
     @classmethod
     def from_dict(cls, row: dict) -> "LoanRecord":
         return cls(
-            loan_id         =   str(row["id"]),
-            loan_amnt       =   float(row["loan_amnt"]),
-            term_months     =   int(row["term"]),
-            issue_date      =   pd.to_datetime(row["issue_d"]),
-            int_rate        =   float(row["int_rate"]),
-            grade           =   str(row["grade"]),
-            sub_grade       =   str(row["sub_grade"]),
-            last_pymnt_date =   pd.to_datetime(row["last_pymnt_d"]),
+            loan_id         =   str(            row["id"]),
+            loan_amnt       =   float(          row["loan_amnt"]),
+            term_months     =   int(            row["term"]),
+            issue_date      =   LoanRecord._parse_date(row["issue_d"]),
+            int_rate        =   float(          row["int_rate"]),
+            grade           =   str(            row["grade"]),
+            sub_grade       =   str(            row["sub_grade"]),
+            last_pymnt_date =   LoanRecord._parse_date(row["last_pymnt_d"]),
             loan_status     =   LoanStatus.from_raw(row["loan_status"]),
-            total_rec_prncp =   float(row["total_rec_prncp"]),
-            recoveries      =   float(row["recoveries"]),
-            total_rec_int   =   float(row["total_rec_int"]),
-            annual_inc      =   float(row["annual_inc"])
+            total_rec_prncp =   float(          row["total_rec_prncp"]),
+            recoveries      =   float(          row["recoveries"]),
+            total_rec_int   =   float(          row["total_rec_int"]),
+            annual_inc      =   float(          row["annual_inc"])
         )
-        return cls(
-            loan_id          =  row["id"],               # adapt column names
-            loan_amnt        =  float(row["loan_amnt"]),
-            term_months      =  int(str(row["term"]).strip()[:2]),
-            issue_date       =  _parse_date(row["issue_d"]),
-            int_rate         =  float(row["int_rate"].strip("%"))/100,
-            grade           =   str(row["grade"]),
-            sub_grade       =   str(row["sub_grade"]),
-            last_pymnt_date  =  _parse_date(row.get("last_pymnt_d")),
-            loan_status      =  LoanStatus(row["loan_status"]),
-            total_rec_prncp  =  float(row.get("total_rec_prncp", 0.0)),
-            recoveries       =  float(row.get("recoveries", 0.0)),
-            total_rec_int    =  float(row.get("total_rec_int", 0.0)),
-            annual_inc      =   float(row["annual_inc"])
-        )
+
+    # ------ Helpers for data conversion ----------------------------
+    ### robust date parser (handles datetime, str, NaN, float)
+    @staticmethod
+    def _parse_date(val: str | _dt.date | _dt.datetime | float | None) -> Optional[_dt.date]:
+        """
+        Robust date parser that accepts:
+        • pd.Timestamp / datetime / date
+        • string  (e.g. 'Jan-2017', '2020-05-01')
+        • numeric:
+            – nanoseconds since epoch  (e.g. 1483920000000000000)
+            – seconds since epoch      (e.g. 1483920000)
+            – days    since epoch      (e.g. 17175.0)
+        Returns a `datetime.date` or None on failure.
+        """
+        import math
+        import numpy as np
+        import pandas as pd
+        from dateutil import parser as _p
+
+        # 1 – already a datetime‐like
+        if isinstance(val, pd.Timestamp):
+            return val.date()                   # <-- ensure datetime.date
+        if isinstance(val, _dt.datetime):
+            return val.date()                   # <-- ensure datetime.date
+        if isinstance(val, _dt.date):
+            return val                     # <-- ensure datetime.date
+
+        # 2 – NaNs
+        if val is None or (isinstance(val, float) and math.isnan(val)):
+            return None
+
+        # 3 – numeric pathways
+        if isinstance(val, (int, np.integer, float, np.floating)):
+            # nanoseconds?
+            if val > 1e13:                      # > ~2001 in ns
+                ts = pd.to_datetime(int(val), unit="ns", errors="coerce")
+            # seconds?
+            elif val > 1e9:                     # > 2001 in s
+                ts = pd.to_datetime(int(val), unit="s", errors="coerce")
+            # days?
+            else:
+                ts = pd.Timestamp("1970-01-01") + pd.Timedelta(days=float(val))
+            return None if pd.isna(ts) else ts.date()
+
+        # 4 – assume string
+        try:
+            return _p.parse(str(val)).date()
+        except Exception:                       # pragma: no cover
+            _LOG.warning("Unparsable date value: %s", val)
+            return None
+
 
     # ------------------------------------------------------------------
     # Representation helpers

@@ -143,15 +143,22 @@ class AmortizationSchedule(Sequence[PaymentPeriod]):
 
         for i in range(1, term + 1):
             # Stop if we reach last_pymnt_d for loans that ended prematurely
+            if isinstance(current_date, pd.Timestamp):
+                current_date_cmp = current_date.date()
+            else:
+                current_date_cmp = current_date
+
+            lpd = loan.last_pymnt_date
+            if isinstance(lpd, pd.Timestamp):
+                lpd_cmp = lpd.date()
+            else:
+                lpd_cmp = lpd
+            
             if (
-                loan.last_pymnt_date is not None
-                and current_date > loan.last_pymnt_date
+                lpd_cmp is not None
+                and current_date_cmp > lpd_cmp
                 and loan.loan_status
-                in {
-                    LoanStatus.FULLY_PAID,
-                    LoanStatus.CHARGED_OFF,
-                    LoanStatus.DEFAULT,
-                }
+                in {LoanStatus.FULLY_PAID, LoanStatus.CHARGED_OFF}
             ):
                 break
 

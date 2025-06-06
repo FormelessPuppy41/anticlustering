@@ -182,36 +182,48 @@ def _schedule_to_frame(
 
 
 def _derive_status_column(
-    loan: LoanRecord, 
-    date_series: pd.Series
+    loan: LoanRecord,
+    date_series: pd.Series,
 ) -> pd.Series:
     """
     Compute a 'status' vector aligned with the simulated period_date series.
 
-    Logic:
-    * BEFORE issue_d  → ValueError
-    * BETWEEN issue_d and departure_date:
-        - use 'Current' until a known default/charged-off date
-        - then 'Default'
-    * AFTER departure_date → use loan.loan_status (usually Fully Paid or Charged Off)
+    All comparisons are performed on plain `datetime.date` objects to avoid
+    Timestamp/date mismatches.
     """
-    departure_date = loan.departure_date
+    # ------------------------------------------------------------------ #
+    # 1. Normalise the loan-level reference dates to `datetime.date`
+    # ------------------------------------------------------------------ #
+    def _to_date(x):
+        if isinstance(x, pd.Timestamp):
+            return x.date()
+        return x  # already datetime.date or None
+
+    issue_d        = _to_date(loan.issue_date)
+    departure_date = _to_date(loan.departure_date)
     default_cutoff = (
-        loan.last_pymnt_date
+        _to_date(loan.last_pymnt_date)
         if loan.loan_status in {LoanStatus.DEFAULT, LoanStatus.CHARGED_OFF}
         else None
     )
 
+    # ------------------------------------------------------------------ #
+    # 2. Walk through simulated period dates (each may be Timestamp)
+    # ------------------------------------------------------------------ #
     statuses: List[str] = []
-    for period_dt in date_series:
-        if period_dt < loan.issue_date:
+    for ts in date_series:
+        pd_date = ts.date() if isinstance(ts, pd.Timestamp) else ts
+
+        if pd_date < issue_d:
             raise ValueError("Simulated date precedes issue_d")
-        if default_cutoff and period_dt >= default_cutoff:
+
+        if default_cutoff and pd_date >= default_cutoff:
             statuses.append(loan.loan_status.value)
-        elif period_dt >= departure_date:
+        elif pd_date >= departure_date:
             statuses.append(loan.loan_status.value)
         else:
             statuses.append(LoanStatus.CURRENT.value)
+
     return pd.Series(statuses, index=date_series.index)
 
 
