@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """loan.py
 ===========
 Domain model for Lending Club loan records.  
@@ -10,18 +12,19 @@ Key abstractions
 
 Author: Thesis project – Erasmus University Rotterdam
 """
-from __future__ import annotations
-
 import datetime as _dt
-from dateutil import parser as _p
-import pandas as pd
-import numpy as np
-import enum
+import logging
 import math
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Optional
-import logging
+from enum import Enum
+from typing import Any, Optional
+
+import numpy as np
+import pandas as pd
+from dateutil import parser as _p
+from dateutil.relativedelta import relativedelta
+
 
 _LOG = logging.getLogger(__name__)
 
@@ -33,11 +36,14 @@ __all__ = [
 # ------------------------------------------------------------------------------- #
 # Enums
 # ------------------------------------------------------------------------------- #
-class LoanStatus(str, enum.Enum):
+class LoanStatus(str, Enum):
     """Canonical terminal states for a Lending Club loan.
     
     We map the raw LoanStats values to a smaller, analysis‑friendly set.
     """
+    CURRENT                 = "Current"  # still active in snapshot (right‑censored)
+    FULLY_PAID              = "Fully Paid"
+    CHARGED_OFF             = "Charged Off"  # default / loss event
 
     # TODO:
     # Default has been deprecated in favour of Charged Off.
@@ -48,10 +54,6 @@ class LoanStatus(str, enum.Enum):
     # Probably best to just drop all but the main three:
     # "Current", "Fully Paid", "Charged Off".
     # !!!! simply remove the rest from the mapping.
-
-    CURRENT                 = "Current"  # still active in snapshot (right‑censored)
-    FULLY_PAID              = "Fully Paid"
-    CHARGED_OFF             = "Charged Off"  # default / loss event
     DEFAULT                 = "Default"  # very rare – legacy LC term
     LATE16_30               = "Late (16-30 days)"  # not used in synthetic schedule
     LATE31_120              = "Late (31-120 days)"  # not used in synthetic schedule
@@ -89,24 +91,34 @@ class LoanStatus(str, enum.Enum):
 # Helpers
 # ------------------------------------------------------------------------------- #
 
-#TODO: Is this correct? some are use "Jan-2015" format others use "12-01-2015" format etc.
-_DATE_FMT_IN = "%b-%Y"
-def _parse_date(s: str | None) -> pd.Timestamp | None:
-    return pd.to_datetime(s, format=_DATE_FMT_IN, errors="coerce") if s else None
+def _parse_date(val: Any) -> Optional[_dt.date]:
+    """Coerce most imaginable inputs → `datetime.date | None`."""
+    # already datetime-like
+    if isinstance(val, (_dt.date, _dt.datetime, pd.Timestamp)):
+        return val.date() if hasattr(val, "date") else val
+    # None / NaN
+    if val is None or (isinstance(val, float) and math.isnan(val)):
+        return None
+    # epoch numbers
+    if isinstance(val, (int, np.integer, float, np.floating)):
+        if val > 1e13: ts = pd.to_datetime(int(val), unit="ns", errors="coerce")
+        elif val > 1e9: ts = pd.to_datetime(int(val), unit="s", errors="coerce")
+        else:           ts = pd.Timestamp("1970-01-01") + pd.Timedelta(days=float(val))
+        return None if pd.isna(ts) else ts.date()
+    # strings
+    try:
+        return _p.parse(str(val)).date()
+    except Exception:                                           # pragma: no cover
+        _LOG.warning("Unparsable date value: %s", val)
+        return None
 
-def _add_months(date_: pd.Timestamp, months: int) -> pd.Timestamp:
-    """Return `date_` shifted forward by *months* calendar months.
 
-    Works for end‑of‑month dates – if original day > target month length, clamp
-    to last day of target month (similar to Excel behaviour).
-    """
-    month       = date_.month - 1 + months
-    year        = date_.year + month // 12
-    month       = month % 12 + 1
-    day         = min(date_.day, [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1])
-    return pd.Timestamp(year, month, day)
+def _add_months(d: _dt.date, months: int) -> _dt.date:
+    """Excel-style month arithmetic that keeps month-ends intuitive."""
+    return (d + relativedelta(months=months))
 
-
+def _raise(msg: str) -> None:                                   # tiny helper
+    raise ValueError(msg)
 
 # ----------------------------------------------------------------------------
 # Core dataclass
@@ -149,70 +161,69 @@ class LoanRecord:
     loan_id             : str
     loan_amnt           : float
     term_months         : int
-    issue_date          : pd.Timestamp
+    issue_date          : _dt.date
     int_rate            : float  # annual nominal rate in *percent* – e.g. 13.56
     grade               : str  # e.g. "A", "B", "C" etc.
     sub_grade           : str  # e.g. "A1", "B2", "C3" etc.
-    last_pymnt_date     : Optional[pd.Timestamp]
+    last_pymnt_date     : Optional[_dt.date]
     loan_status         : LoanStatus
-    total_rec_prncp     : float = 0.0
-    recoveries          : float = 0.0
-    total_rec_int       : float = 0.0
-    annual_inc          : float = 0.0  # annual income of the borrower (in USD)
+    total_rec_prncp     : float
+    recoveries          : float
+    total_rec_int       : float
+    annual_inc          : float # annual income of the borrower (in USD)
     # lazily computed cache – excluded from equality / repr
     _monthly_payment    : Decimal | None = field(init=False, default=None, repr=False, compare=False)
+
+    # ── automatic type-coercion ───────────────────────────────────────────
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, 
+            "issue_date",
+             _parse_date(self.issue_date) or _raise("issue_date missing")
+            )
+        if self.last_pymnt_date:
+            object.__setattr__(
+                self, 
+                "last_pymnt_date", 
+                _parse_date(self.last_pymnt_date)
+            )
+        if self.int_rate > 1.0:
+            # convert from percent to decimal
+            object.__setattr__(self, "int_rate", self.int_rate / 100.0)
 
     # ------- Core financial helpers --------------------------------
     
     @property
-    def monthly_rate(self) -> Decimal:
+    def monthly_rate(self) -> float:
         """Monthly nominal rate (decimal, not percent)."""
-        return (self.int_rate / Decimal("100")) / Decimal("12")
+        return (self.int_rate / 12)
 
     @property
     def monthly_payment(self) -> Decimal:
-        """Fixed amortising instalment according to standard annuity formula."""
-        if self._monthly_payment is None:
-            r = float(self.monthly_rate)
-            n = self.term_months
-            if r == 0:
-                payment = float(self.loan_amnt) / n
-            else:
-                payment = float(self.loan_amnt) * (r * (1 + r) ** n) / ((1 + r) ** n - 1)
-            object.__setattr__(self, "_monthly_payment", Decimal(str(round(payment, 2))))
-        return self._monthly_payment  # type: ignore [return‑value]
+        if self._monthly_payment == 0:
+            r, n = self.monthly_rate, self.term_months
+            pay = (self.loan_amnt / n) if r == 0 else self.loan_amnt * r * (1 + r) ** n / ((1 + r) ** n - 1)
+            object.__setattr__(self, "_monthly_payment", Decimal(str(round(pay, 2))))
+        return self._monthly_payment
+
 
     
     #  ----- Lifecycle helpers --------------------------------
-
     @property
-    def maturity_date(self) -> pd.Timestamp:
-        """Calendar end date if loan runs full term."""
+    def maturity_date(self) -> _dt.date:
         return _add_months(self.issue_date, self.term_months)
 
-    @property
-    def departure_date(self) -> pd.Timestamp:
-        """Date when loan exited, based on snapshot information."""
-        if self.loan_status is LoanStatus.CURRENT:
-            # Approximate: assume still active through scheduled maturity.
-            return self.maturity_date
-        # Fallback to last payment date when available, else scheduled.
-        return self.last_pymnt_date or self.maturity_date
-
-
-    # ------- Convenience predicates ------------------------------
 
     @property
-    def is_fully_paid(self) -> bool:
-        return self.loan_status is LoanStatus.FULLY_PAID
+    def departure_date(self) -> _dt.date:
+        return (
+            self.maturity_date 
+            if self.loan_status is LoanStatus.CURRENT
+            else self.last_pymnt_date or self.maturity_date
+        )
 
     @property
-    def is_defaulted(self) -> bool:
-        return self.loan_status in {LoanStatus.CHARGED_OFF}
-
-    @property
-    def outstanding_principal(self) -> Decimal:
-        """Current outstanding principal (total minus recovered)."""
+    def outstanding_principal(self) -> float:
         return max(self.loan_amnt - self.total_rec_prncp, 0.0)
     
 
@@ -227,11 +238,11 @@ class LoanRecord:
             loan_id         =   str(                row["id"]),
             loan_amnt       =   float(              row["loan_amnt"]),
             term_months     =   int(                row["term"]),
-            issue_date      =   LoanRecord._parse_date(row["issue_d"]),
+            issue_date      =   _parse_date(        row["issue_d"]),
             int_rate        =   float(              row["int_rate"]),
             grade           =   str(                row["grade"]),
             sub_grade       =   str(                row["sub_grade"]),
-            last_pymnt_date =   LoanRecord._parse_date(row["last_pymnt_d"]),
+            last_pymnt_date =   _parse_date(        row["last_pymnt_d"]),
             loan_status     =   LoanStatus.from_raw(row["loan_status"]),
             total_rec_prncp =   float(              row["total_rec_prncp"]),
             recoveries      =   float(              row["recoveries"]),
@@ -242,19 +253,19 @@ class LoanRecord:
     @classmethod
     def from_dict(cls, row: dict) -> "LoanRecord":
         return cls(
-            loan_id         =   str(            row["id"]),
-            loan_amnt       =   float(          row["loan_amnt"]),
-            term_months     =   int(            row["term"]),
-            issue_date      =   LoanRecord._parse_date(row["issue_d"]),
-            int_rate        =   float(          row["int_rate"]),
-            grade           =   str(            row["grade"]),
-            sub_grade       =   str(            row["sub_grade"]),
-            last_pymnt_date =   LoanRecord._parse_date(row["last_pymnt_d"]),
+            loan_id         =   str(                row["id"]),
+            loan_amnt       =   float(              row["loan_amnt"]),
+            term_months     =   int(                row["term"]),
+            issue_date      =   _parse_date(        row["issue_d"]),
+            int_rate        =   float(              row["int_rate"]),
+            grade           =   str(                row["grade"]),
+            sub_grade       =   str(                row["sub_grade"]),
+            last_pymnt_date =   _parse_date(        row["last_pymnt_d"]),
             loan_status     =   LoanStatus.from_raw(row["loan_status"]),
-            total_rec_prncp =   float(          row["total_rec_prncp"]),
-            recoveries      =   float(          row["recoveries"]),
-            total_rec_int   =   float(          row["total_rec_int"]),
-            annual_inc      =   float(          row["annual_inc"])
+            total_rec_prncp =   float(              row["total_rec_prncp"]),
+            recoveries      =   float(              row["recoveries"]),
+            total_rec_int   =   float(              row["total_rec_int"]),
+            annual_inc      =   float(              row["annual_inc"])
         )
 
     # ------ Helpers for data conversion ----------------------------

@@ -191,35 +191,22 @@ def _derive_status_column(
     All comparisons are performed on plain `datetime.date` objects to avoid
     Timestamp/date mismatches.
     """
-    # ------------------------------------------------------------------ #
-    # 1. Normalise the loan-level reference dates to `datetime.date`
-    # ------------------------------------------------------------------ #
-    def _to_date(x):
-        if isinstance(x, pd.Timestamp):
-            return x.date()
-        return x  # already datetime.date or None
-
-    issue_d        = _to_date(loan.issue_date)
-    departure_date = _to_date(loan.departure_date)
     default_cutoff = (
-        _to_date(loan.last_pymnt_date)
+        loan.last_pymnt_date
         if loan.loan_status in {LoanStatus.DEFAULT, LoanStatus.CHARGED_OFF}
         else None
     )
 
-    # ------------------------------------------------------------------ #
-    # 2. Walk through simulated period dates (each may be Timestamp)
-    # ------------------------------------------------------------------ #
     statuses: List[str] = []
     for ts in date_series:
         pd_date = ts.date() if isinstance(ts, pd.Timestamp) else ts
 
-        if pd_date < issue_d:
+        if pd_date < loan.issue_date:
             raise ValueError("Simulated date precedes issue_d")
 
         if default_cutoff and pd_date >= default_cutoff:
             statuses.append(loan.loan_status.value)
-        elif pd_date >= departure_date:
+        elif pd_date >= loan.departure_date:
             statuses.append(loan.loan_status.value)
         else:
             statuses.append(LoanStatus.CURRENT.value)

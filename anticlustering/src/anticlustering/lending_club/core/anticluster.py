@@ -31,33 +31,7 @@ from typing import Dict, Iterable, List, Sequence, Tuple, Callable
 import numpy as np
 
 from .loan import LoanRecord, LoanStatus
-
-# --------------------------------------------------------------------------- #
-#                              Helper: Feature map                            #
-# --------------------------------------------------------------------------- #
-
-
-def default_feature_vector(loan: LoanRecord) -> np.ndarray:
-    """
-    Convert a **LoanRecord** into a numeric feature vector.
-
-    Feel free to swap in your own encoder; this default keeps only three
-    simple, *easily available* columns so the module stays self-contained.
-
-    Returns
-    -------
-    numpy.ndarray  shape=(3,)
-        [scaled_loan_amnt, scaled_int_rate, term_months]
-    """
-    return np.array(
-        [
-            loan.loan_amnt,
-            loan.int_rate * 100,  # percent
-            loan.term_months,
-        ],
-        dtype=float,
-    )
-
+from .features import vectorise as default_feature_vector
 
 # --------------------------------------------------------------------------- #
 #                               Anticluster class                             #

@@ -35,11 +35,12 @@ def create_pipeline(**kwargs) -> Pipeline:
         #     inputs=C.Data.KAGGLE_1418,
         #     outputs=C.Data.KAGGLE_TEST,
         #     name="create_test_kaggle_data_node_1418",
-        # ),
+        # ), #FIXME: Remove this and use the reduce_n parameter in the process_kaggle_data node instead
         node(
             func=process_kaggle_data,
             inputs=[
                 C.Data.KAGGLE_TEST,
+                P.OnlineAnticluster.KAGGLE_COLUMNS,
                 P.OnlineAnticluster.REDUCE_N,
                 P.OnlineAnticluster.SCALE,
                 P.RNG_NUMBER

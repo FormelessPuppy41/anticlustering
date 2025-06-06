@@ -105,9 +105,11 @@ class StreamEngine:
         self._all_loans: List[LoanRecord] = sorted(loans, key=lambda lo: lo.issue_date)
         self._arrival_dates: List[_dt.date] = [lo.issue_date for lo in self._all_loans]
 
-        self.current_date: _dt.date = start_date or self._arrival_dates[0]
-        self.end_date: _dt.date | None = end_date
+        self.start_date   = start_date or min(lo.issue_date for lo in loans)
+        self.end_date     = end_date if end_date else None
 
+        self.current_date: _dt.date = self.start_date
+        
         self.pool = ActivePool()
 
         # internal cursor: index into _all_loans for next arrival candidate

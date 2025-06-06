@@ -97,22 +97,6 @@ def _parse_log(arr):
     flat = _as_1d(arr)
     return np.log1p(np.nan_to_num(flat, nan=0.0)).reshape(-1, 1)
 
-def _passthrough_date(arr):
-    """Passthrough date column, converting to datetime."""
-    return _as_1d(arr)
-
-def _add_date_twins(df: pd.DataFrame, date_cols: list[str]) -> pd.DataFrame:
-    """
-    • Ensures each date column is converted to datetime *in place*.
-    • Adds <col>_numeric containing days-since-epoch (float) for ML pipeline.
-    """
-    for col in date_cols:
-        df[col] = pd.to_datetime(df[col], errors="coerce", dayfirst=True)
-        df[f"{col}_numeric"] = (
-            df[col].astype("int64") // 86_400_000_000_000
-        ).astype(float)
-    return df
-
 
 class NamedFunctionTransformer(FunctionTransformer):
     """

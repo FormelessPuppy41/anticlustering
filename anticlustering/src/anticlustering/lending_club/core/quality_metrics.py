@@ -24,7 +24,8 @@ from typing import Callable, Dict, Iterable, List, Sequence
 import numpy as np
 import pandas as pd
 
-from ..core.anticluster import AnticlusterManager, default_feature_vector
+from ..core.anticluster import AnticlusterManager
+from ..core.features import vectorise as default_feature_vector
 from ..core.loan import LoanRecord
 
 
@@ -92,51 +93,40 @@ def balance_score_categorical(
 #             -----  Within-group variance of numeric features  -----         #
 # --------------------------------------------------------------------------- #
 
-
 def within_group_variance(
-    manager     : AnticlusterManager,
-    feat_fn     : Callable[[LoanRecord], np.ndarray] = default_feature_vector,
+    manager: "AnticlusterManager",
+    loan_lookup: dict[str, "LoanRecord"],
+    feat_fn: callable = default_feature_vector,
 ) -> float:
     """
-    Ratio of *average within-group variance* to the *overall variance*
-    (< 1 indicates the groups are more heterogeneous than the whole, i.e.
-    good for anticlustering).
+    Average within-group variance of the feature vectors.
 
-    Returns
-    -------
-    float
-        Value ∈ (0, ∞).  < 1 ⇢ desirable; = 1 no gain; > 1 the clustering is
-        *too homogeneous* (bad for anticlustering).
+    Parameters
+    ----------
+    manager
+        The current AnticlusterManager (has groups + membership).
+    loan_lookup
+        Mapping {loan_id -> LoanRecord}.  Needed because
+        `manager._index[lid]` stores only the group number.
+    feat_fn
+        Function that converts a LoanRecord to a numeric 1-D vector.
     """
-    all_vecs: List[np.ndarray] = []
-    within_ssq = 0.0
-    total_n = 0
+    all_vecs: list[np.ndarray] = []
 
     for grp in manager._groups:
         if grp.size == 0:
             continue
+
         vecs = np.stack(
-            [feat_fn(manager._index[lid][0] and None)  # placeholder
-            for lid in grp.members]
-        )  # type: ignore
+            [feat_fn(loan_lookup[lid]) for lid in grp.members]   # <-- FIX
+        )
         all_vecs.append(vecs)
-        grp_centroid = grp.centroid
-        distances = vecs - grp_centroid
-        within_ssq += np.sum(distances**2)
-        total_n += grp.size
 
-    if total_n == 0:
-        return float("nan")
+    if not all_vecs:
+        return 0.0
 
-    # overall variance
-    global_vecs = np.vstack(all_vecs)
-    global_centroid = np.mean(global_vecs, axis=0)
-    total_ssq = np.sum((global_vecs - global_centroid) ** 2)
-
-    if total_ssq == 0:
-        return 0.0  # degenerate case (all loans identical)
-
-    return within_ssq / total_ssq
+    variances = [np.var(v, axis=0).mean() for v in all_vecs]
+    return float(np.mean(variances))
 
 
 # --------------------------------------------------------------------------- #

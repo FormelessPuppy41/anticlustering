@@ -1,0 +1,58 @@
+# This is a boilerplate parameters config generated for pipeline 'online_anticluster'
+# using Kedro 0.19.13.
+#
+# Documentation for this file format can be found in "Parameters"
+# Link: https://docs.kedro.org/en/0.19.13/configuration/parameters.html
+
+
+percentage_columns:
+  - int_rate
+
+date_columns:
+  - issue_d
+  - last_pymnt_d
+
+log_numeric_columns:
+  - annual_inc
+  - loan_amnt
+  - total_rec_prncp
+  - recoveries
+  - total_rec_int
+
+special_numeric_columns:
+  - term
+
+ordinal_columns:
+  grade:        ["A", "B", "C", "D", "E", "F", "G"]
+  sub_grade:    [
+      "A1", "A2", "A3", "A4", "A5",
+      "B1", "B2", "B3", "B4", "B5",
+      "C1", "C2", "C3", "C4", "C5",
+      "D1", "D2", "D3", "D4", "D5",
+      "E1", "E2", "E3", "E4", "E5",
+      "F1", "F2", "F3", "F4", "F5",
+      "G1", "G2", "G3", "G4", "G5"
+      ]
+
+categorical_columns:
+
+passthrough_columns:
+  - id
+  - loan_status
+
+keep_columns:
+  - id
+  - loan_amnt
+  - term
+  - int_rate
+  - issue_d
+  - grade
+  - sub_grade
+  - last_pymnt_d
+  - loan_status
+  - total_rec_prncp
+  - recoveries
+  - total_rec_int
+  - annual_inc
+  #  add the rest of your essentials here
+

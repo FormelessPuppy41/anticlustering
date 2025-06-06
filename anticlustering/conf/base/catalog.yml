@@ -35,6 +35,22 @@ kaggle_data_test_processed_loan_records_long:
   filepath: data/03_primary/kaggle_data_test_processed_loan_records_long.pkl
   versioned: true
 
+kaggle_stream_monthly_events:
+  type: pandas.CSVDataset
+  filepath: data/03_primary/kaggle_stream_monthly_events.csv
+  versioned: true
+
+
+anticluster_assignments:
+  type: pandas.CSVDataset
+  filepath: data/03_primary/anticluster_assignments.csv
+  versioned: true
+
+anticluster_metrics:
+  type: pandas.CSVDataset
+  filepath: data/03_primary/anticluster_metrics.csv
+  versioned: true
+
 
 # --- REPORTS -----------------------------------------------------------
 report_data_table1_replication:

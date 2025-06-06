@@ -18,10 +18,19 @@ class Parameters:
         K              = "params:anticluster.k"
 
     class OnlineAnticluster:
+        KAGGLE_COLUMNS      = "params:kaggle_columns"  # e.g. kaggle_columns_1920.yaml
+
         AS_OF_STR           = "params:online.as_of_str"
         REGULAR_REPAYMENT   = "params:online.regular_repayment"
         REDUCE_N            = "params:online.reduce_n"          # int, e.g. 1000
         SCALE               = "params:online.scale"             # bool, e.g. True or False
+        STREAM_START_DATE   = "params:online.stream_start_date"
+        STREAM_END_DATE     = "params:online.stream_end_date"   # e.g. "2020-01-01"
+        K_GROUPS            = "params:online.k_groups"          # int, e.g. 10
+        HARD_BALANCE_COLS   = "params:online.hard_balance_cols"  # list of str, e.g. ["loan_status"]
+        SIZE_TOLERANCE      = "params:online.size_tolerance"     # int, e.g. 1  
+        REBALANCE_FREQUENCY = "params:online.rebalance_frequency"  # int, e.g. 3 (months)
+        METRICS_CAT_COLS    = "params:online.metrics_cat_cols"   # list of str, e.g. ["grade", "purpose"]
 
     class Visualisation:
         MAIN_SOLVER    = "params:visualisation.main_solver"     # list or str.

@@ -12,6 +12,11 @@ class Catalog:
         KAGGLE_PROCESSED_LOAN_RECORDS       = "kaggle_data_test_processed_loan_records"  # e.g. kaggle_data_1920_processed_loan_records
         KAGGLE_PROCESSED_LOAN_RECORDS_LONG  = "kaggle_data_test_processed_loan_records_long"  # e.g. kaggle_data_1920_processed_loan_records_long
 
+        KAGGLE_STREAM_MONTHLY_EVENTS        = "kaggle_stream_monthly_events"  # e.g. kaggle_data_1920_stream_monthly_events
+
+        ANTICLUSTER_ASSIGNMENTS  = "anticluster_assignments"  # e.g. anticluster_assignments_2020-01-01
+        ANTICLUSTER_METRICS      = "anticluster_metrics"      # e.g. anticluster_metrics_2020-01-01
+
         SIM_DATA            = "all_simulated_data"
     
     

@@ -38,12 +38,25 @@ anticluster:
         - "sub_grade"
       size_tolerance      : 10 #int
       rebalance_frequency : 12 #int
-      stream_start        : "2020-01-01" # str, date in format YYYY-MM-DD. Maybe None
+      stream_start        : "2017-01-01" # str, date in format YYYY-MM-DD. Maybe None
       stream_end          : "2020-12-31" # str, date in format YYYY-MM-DD. Maybe None
       
 
 online:
-  as_of_str               : "2020-01-01"  # MUST EQUAL stream_start in online solver!
+  as_of_str               :   # MUST EQUAL stream_end in online solver or be empty!
   regular_repayment       : true  # bool: true -> use regular repayment
-  reduce_n                : None  # int: reduce n to this number of rows
+  reduce_n                :   # int: reduce n to this number of rows
   scale                   : false
+
+  stream_start_date       : "2017-01-01" # str, date in format YYYY-MM-DD. Maybe None
+  stream_end_date         : "2020-12-01" # str, date in format YYYY-MM-DD. Maybe None
+  
+  k_groups                : 2 # int: number of groups to form
+  rebalance_frequency     : 12 # int: how often to rebalance (months)
+  size_tolerance          : 10 # int: how much the group sizes can differ
+  hard_balance_cols       : # list of columns to balance hard
+    - "grade"
+    - "sub_grade"
+  metrics_cat_cols        : # list of columns to use as categorical metrics
+    - "grade"
+    - "sub_grade"
