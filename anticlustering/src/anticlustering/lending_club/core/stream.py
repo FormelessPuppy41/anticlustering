@@ -25,10 +25,12 @@ from collections import defaultdict
 from typing import Dict, Iterable, Iterator, List, Tuple
 
 import bisect
+import logging
 from dateutil.relativedelta import relativedelta
 
 from .loan import LoanRecord, LoanStatus, _add_months
 
+_LOG = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------- #
 #                                 ActivePool                                  #
@@ -143,11 +145,13 @@ class StreamEngine:
 
             # advance one calendar month
             self.current_date = _add_months(self.current_date, 1)
-
+            
             # stopping criteria
             if self.end_date and self.current_date > self.end_date:
+                _LOG.info("Reached end_date: %s", self.end_date)
                 break
             if self._next_arrival_idx >= len(self._all_loans) and len(self.pool) == 0:
+                _LOG.info("No more arrivals and pool is empty; stopping.")
                 break
 
     # ------------------------------------------------------------------ #

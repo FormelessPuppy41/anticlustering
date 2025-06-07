@@ -15,7 +15,7 @@ Author: Thesis project – Erasmus University Rotterdam
 import datetime as _dt
 import logging
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Optional
@@ -120,6 +120,26 @@ def _add_months(d: _dt.date, months: int) -> _dt.date:
 def _raise(msg: str) -> None:                                   # tiny helper
     raise ValueError(msg)
 
+
+class LoanRecordFeatures:
+    @classmethod
+    def numeric_fields(cls) -> list[str]:
+        """
+        Returns the names of all numeric fields in LoanRecord.
+
+        Assumes:
+        - floats and ints are considered numeric.
+        - Optional[float] / Optional[int] are not considered numeric.
+        """
+        numeric_types = (float, int)
+
+        return [
+            f.name
+            for f in fields(LoanRecord)
+            if f.type in numeric_types
+        ]
+    
+    
 # ----------------------------------------------------------------------------
 # Core dataclass
 # ----------------------------------------------------------------------------

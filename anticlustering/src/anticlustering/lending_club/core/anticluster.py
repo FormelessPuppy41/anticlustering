@@ -31,7 +31,7 @@ from typing import Dict, Iterable, List, Sequence, Tuple, Callable
 import numpy as np
 
 from .loan import LoanRecord, LoanStatus
-from .features import vectorise_loan as default_feature_vector
+from .features import vectorise_loan, vectorise_records
 
 # --------------------------------------------------------------------------- #
 #                               Anticluster class                             #
@@ -108,19 +108,28 @@ class AnticlusterManager:
     def __init__(
         self,
         k                   : int,
-        hard_balance_cols   : Sequence[str] | None  = None,
-        feature_fn          : Callable              = default_feature_vector,
-        size_tolerance      : int                   = 1,
+        numeric_feature_cols: Sequence[str],
+        *,
+        log_columns         : Sequence[str] | None      = None,
+        scale               : bool = False,
+        weights             : Dict[str, float] | None   = None,
+        hard_balance_cols   : Sequence[str] | None      = None,
+        size_tolerance      : int                       = 1,
     ) -> None:
         if k < 2:
             raise ValueError("Need at least two anticlusters.")
+        
         self.k                                  = k
-        self.feature_fn                         = feature_fn
+        self.cols                               = numeric_feature_cols
+        self.log_cols                           = log_columns
+        self.scale                              = scale
+        self.weights                            = weights
+        self._scaler                            = None  # StandardScaler, if scale=True
+        
         self.size_tolerance                     = size_tolerance
         self.hard_cols      : Tuple[str, ...]   = tuple(hard_balance_cols or [])
 
         self._groups        : List[_GroupState] = [_GroupState() for _ in range(k)]
-        # cache: loan_id → (group_idx, feature_vec, cat_keys)
         self._index         : Dict[str, Tuple[int, np.ndarray, Tuple[str, ...]]] = {}
 
     # ------------------------------------------------------------------ #
@@ -128,52 +137,123 @@ class AnticlusterManager:
     # ------------------------------------------------------------------ #
 
     # ----------  event handlers  ---------- #
+    def add_loans(self, new_loans: list[LoanRecord]) -> None:
+        """
+        Ingest a *batch* of LoanRecord objects, extend the feature matrix,
+        and re-optimise the anticluster assignment.
+
+        Parameters
+        ----------
+        new_loans : list[LoanRecord]
+            Fresh loans arriving at the current iteration.
+
+        Notes
+        -----
+        • Feature extraction is **vectorised** (single call) via
+          `vectorise_records`, so there is no Python-loop per loan.
+        • Optional log-transform / scaling / weighting are applied inside
+          `vectorise_records`.
+        • If ``scale=True`` the running ``StandardScaler`` is updated
+          incrementally by passing the previous fitted instance back in.
+        """
+        if not new_loans:
+            return  # nothing to do
+
+        # 0 ── vectorise the whole batch in one call
+        vec, _ = vectorise_records(
+            new_loans,
+            self.cols,
+            scale=self.scale,
+            log_columns=self.log_cols,
+            weights=self.weights,
+            scaler=self._scaler
+        )
+        vec = vec
+
+        # initialise caches if first call
+        if not hasattr(self, "_records"):
+            self._records  = []
+            self._features = np.empty((0, vec.shape[1]), dtype=float)
+
+        # 1 ── iterate over loans & their feature rows (still Python-level,
+        #       but all expensive math is pre-vectorised)
+        for loan, vec in zip(new_loans, vec, strict=True):
+
+            cat_keys = tuple(getattr(loan, col) for col in self.hard_cols)
+            candidate_idxs = self._legal_groups(cat_keys)
+            if not candidate_idxs:           # fallback if no legal group
+                candidate_idxs = range(self.k)
+
+            best_idx, best_score = None, -math.inf
+            for idx in candidate_idxs:
+                grp = self._groups[idx]
+                # distance to centroid (empty group → huge dist = good)
+                if grp.centroid is None:
+                    dist = 1e6
+                else:
+                    dist = np.linalg.norm(vec - grp.centroid)
+                # small penalty for oversized groups
+                size_penalty = grp.size / max(1, self.avg_group_size())
+                score = dist / (1 + size_penalty)
+                if score > best_score:
+                    best_idx, best_score = idx, score
+
+            # 2 ── commit the assignment
+            self._groups[best_idx].add(loan.loan_id, vec, cat_keys)
+            self._index[loan.loan_id] = (best_idx, vec, cat_keys)
+
+            # 3 ── append raw + feature for optional analysis later
+            self._records.append(loan)
+            self._features = np.vstack([self._features, vec])
+
 
     def add_loan(self, loan: LoanRecord) -> int:
         """
-        Assign a loan to an anticluster *incrementally*. 
-        This method uses the `self.feature_fn` to convert the loan into a
-        feature vector, and then selects the best group based on the current
-        centroids of the groups.
+        Assign a loan to an anticluster *incrementally*.
 
         Parameters
         ----------
         loan : LoanRecord
-            The loan to be added.  Must have all attributes required by
-            `self.feature_fn` and `self.hard_cols`.
+            The loan to be added.
 
         Returns
         -------
-        idx  : int
-            Index of the chosen group (0 … K-1).
+        int : Index of the chosen group.
         """
-        vec = self.feature_fn(loan)
+        # Vectorise a single loan
+        vec, _ = vectorise_records(
+            loan,
+            self.cols,
+            scale=self.scale,
+            log_columns=self.log_cols,
+            weights=self.weights,
+            scaler=self._scaler
+        )
+        vec = vec[0]  # unpack single (1, d) → (d,)
 
         cat_keys = tuple(getattr(loan, col) for col in self.hard_cols)
         candidate_idxs = self._legal_groups(cat_keys)
 
         if not candidate_idxs:
-            # fallback: ignore hard constraint if impossible (rare)
             candidate_idxs = range(self.k)
 
-        # Choose group that *maximises* distance to current centroid
-        # with a small bias towards smaller groups to maintain parity.
         best_idx, best_score = None, -math.inf
         for idx in candidate_idxs:
             group = self._groups[idx]
-            size_penalty = group.size / max(1, self.avg_group_size())  # ~1 for avg
             if group.centroid is None:
-                score = 1e6  # empty group: trivially best heterogeneity
+                dist = 1e6
             else:
                 dist = np.linalg.norm(vec - group.centroid)
-                score = dist / (1 + size_penalty)
+            size_penalty = group.size / max(1, self.avg_group_size())
+            score = dist / (1 + size_penalty)
             if score > best_score:
                 best_idx, best_score = idx, score
 
-        assert best_idx is not None
         self._groups[best_idx].add(loan.loan_id, vec, cat_keys)
         self._index[loan.loan_id] = (best_idx, vec, cat_keys)
+
         return best_idx
+
 
     def remove_loan(self, loan_id: str) -> int:
         """

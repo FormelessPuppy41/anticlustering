@@ -12,10 +12,12 @@ by both the offline and online solvers without side-effects.
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Sequence, Optional
 
 import numpy as np
 from dateutil import parser as _p
+
+from sklearn.preprocessing import StandardScaler
 
 from .loan import LoanRecord, LoanStatus
 
@@ -104,3 +106,57 @@ def vectorise_list_loans(loans: Iterable[LoanRecord]) -> np.ndarray:
     Turn a list of ``LoanRecord`` into a **2-D numpy array** of numeric features.
     """
     return np.array([vectorise_loan(loan) for loan in loans], dtype=float)
+
+def vectorise_records(
+    records: Sequence[LoanRecord] | LoanRecord,
+    columns: Sequence[str],
+    *,
+    scale: bool = False,
+    log_columns: Optional[Sequence[str]] = None,
+    weights: Optional[dict[str, float]] = None,
+    scaler: Optional[StandardScaler] = None,
+) -> tuple[np.ndarray, Optional[StandardScaler]]:
+    """
+    Parameters
+    ----------
+    records      : list of LoanRecord OR a single LoanRecord
+    columns      : field names to extract
+    scale        : whether to apply StandardScaler
+    log_columns  : subset of columns to apply np.log1p
+    weights      : optional per-dimension weights
+    scaler       : reuse scaler if provided
+
+    Returns
+    -------
+    ndarray of shape (n_samples, n_features)
+    fitted scaler or None
+    """
+    # Handle single LoanRecord
+    if isinstance(records, LoanRecord):
+        records = [records]
+
+    records = list(records)  # In case it's a generator
+
+    # Extract features
+    arr = np.array([[getattr(r, c) for c in columns] for r in records], dtype=float)
+
+    if log_columns:
+        for j, col in enumerate(columns):
+            if col in log_columns:
+                arr[:, j] = np.log1p(arr[:, j])
+
+    if scale:
+        if scaler is None:
+            scaler = StandardScaler().fit(arr)
+        arr = scaler.transform(arr)
+    else:
+        scaler = None
+
+    if weights:
+        w = np.array([weights.get(c, 1.0) for c in columns], dtype=float)
+        arr *= w
+
+    return arr, scaler
+
+    
+    

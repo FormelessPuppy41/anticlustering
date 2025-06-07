@@ -45,6 +45,49 @@ def _reduce_sample(
         return df.sample(n=n, random_state=rng_number).reset_index(drop=True)
     return df.copy()
 
+
+
+from ...preprocessing.general_online_preprocessor import parse_kaggle_dataframe
+def parse_kaggle_data(
+    df_raw,
+    kaggle_columns : dict[str, Any],
+    reduce_n       : int | None = None,
+    rng_number     : int = 42,
+):
+    """
+    Thin, irreversible parsing only – no scaling or log transforms.
+    """
+    if reduce_n:
+        prev_len = len(df_raw)
+        df_raw = _reduce_sample(df_raw, n=int(reduce_n), rng_number=rng_number)
+        _LOG.info("Reduced Kaggle data to %d rows from %s rows (random sampling)", len(df_raw), prev_len)
+    
+    keep_cols        = kaggle_columns.get("keep_columns")            or []
+    percent_cols     = kaggle_columns.get("percentage_columns")      or []
+    term_cols        = kaggle_columns.get("special_numeric_columns") or []
+    date_cols        = kaggle_columns.get("date_columns")            or []
+    log_cols         = kaggle_columns.get("log_numeric_columns")     or []
+    log_cols         = []
+    ordinal_cols     = kaggle_columns.get("ordinal_columns")         or {}
+    categorical_cols = kaggle_columns.get("categorical_columns")     or []
+    passthrough_cols = kaggle_columns.get("passthrough_columns")     or []
+
+    return parse_kaggle_dataframe(
+        df_raw,
+        keep_cols       = keep_cols,
+        percentage_cols = percent_cols,
+        term_cols       = term_cols,
+        date_cols       = date_cols,
+        log_numeric_cols= log_cols,
+        ordinal_cols    = ordinal_cols,
+        categorical_cols= categorical_cols,
+        passthrough_cols= passthrough_cols,
+        fill_numeric_nan= 0.0,
+    )
+    print(df)
+    return df
+
+
 def process_kaggle_data(
         df              : pd.DataFrame, 
         kaggle_columns  : dict[str, Any],

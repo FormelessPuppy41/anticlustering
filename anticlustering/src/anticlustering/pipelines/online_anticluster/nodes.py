@@ -42,7 +42,7 @@ from typing import List
 import pandas as pd
 from kedro.pipeline import Pipeline, node
 
-from ...lending_club.core.loan import LoanRecord
+from ...lending_club.core.loan import LoanRecord, LoanRecordFeatures
 from ...lending_club.core.stream import StreamEngine
 
 log = logging.getLogger(__name__)
@@ -159,6 +159,7 @@ def update_anticlusters(
     loans: List[LoanRecord],
     events_df: pd.DataFrame,
     k_groups: int,
+    kaggle_cols: List[str],
     hard_balance_cols: Sequence[str],
     size_tolerance: int,
     rebalance_frequency: int,
@@ -175,6 +176,7 @@ def update_anticlusters(
     loan_map: Dict[str, LoanRecord] = {lo.loan_id: lo for lo in loans}
     mgr = AnticlusterManager(
         k=k_groups,
+        numeric_feature_cols=LoanRecordFeatures.numeric_fields(),
         hard_balance_cols=hard_balance_cols,
         size_tolerance=size_tolerance,
     )
@@ -200,8 +202,10 @@ def update_anticlusters(
         departures = departure_ids
 
         # ----- arrivals ----- #
-        for lo in arrivals:
-            mgr.add_loan(lo)
+        # Process arrivals all at once
+        if arrivals:
+            mgr.add_loans(arrivals)
+
 
         # ----- departures ----- #
         for lid in departures:
