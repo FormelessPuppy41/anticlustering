@@ -35,20 +35,28 @@ Author
 Your Name  <your.email@example.com>
 """
 
+import ast
 import datetime as _dt
 import logging
-from typing import List
+from typing import Dict, List, Sequence
 
 import pandas as pd
-from kedro.pipeline import Pipeline, node
+import numpy as np
 
 from ...loan.loan import LoanRecord, LoanRecordFeatures
+from ...loan.vectorizer import LoanVectorizer
 from ...streaming.stream import StreamEngine
+from ...streaming.stream_manager import AnticlusterManager
+from ...streaming.quality_metrics import (
+    balance_score_categorical,
+    within_group_variance,
+)
+
 
 log = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------- #
-#                               Node function                                 #
+#                               Node functions                                #
 # --------------------------------------------------------------------------- #
 
 
@@ -107,54 +115,6 @@ def simulate_stream(
     return df_events
 
 
-"""
-pipelines/update_anticluster.py
-===============================
-
-Pipeline #4 ― *Maintain online anticlusters & compute quality metrics*
-
-Inputs
-------
-* ``loans_raw``             : List[LoanRecord]         (from ingest)
-* ``stream_monthly_events`` : pandas.DataFrame         (from simulate_stream)
-
-Parameters (conf/*/parameters.yml)
-----------------------------------
-k_groups                  : 4
-hard_balance_cols         : ["grade"]          # perfectly balanced
-size_tolerance            : 1
-rebalance_frequency       : 3                  # months; 0 ⇒ never
-metrics_cat_cols          : ["grade", "purpose"]
-
-Outputs
--------
-* ``anticluster_assignments`` : pandas.DataFrame  (long format)
-* ``anticluster_metrics``     : pandas.DataFrame  (wide format)
-
-"""
-
-import ast
-import logging
-from typing import Dict, List, Sequence
-
-import numpy as np
-import pandas as pd
-from kedro.pipeline import Pipeline, node
-
-from ...streaming.stream_manager import AnticlusterManager
-from ...loan.loan import LoanRecord
-from ...streaming.quality_metrics import (
-    balance_score_categorical,
-    within_group_variance,
-)
-
-log = logging.getLogger(__name__)
-
-# --------------------------------------------------------------------------- #
-#                               Node function                                 #
-# --------------------------------------------------------------------------- #
-
-
 def update_anticlusters(
     loans: List[LoanRecord],
     events_df: pd.DataFrame,
@@ -172,14 +132,20 @@ def update_anticlusters(
     Returns a dict of DataFrames so Kedro can wire them to two distinct
     catalog entries.
     """
+    vectorizer = LoanVectorizer.fit(
+        loans,
+        numeric_attrs= LoanRecordFeatures.numeric_fields(),
+        categorical_attrs= LoanRecordFeatures.categorical_fields(),
+    )
     # ---- prep ----------------------------------------------------------- #
-    loan_map: Dict[str, LoanRecord] = {lo.loan_id: lo for lo in loans}
     mgr = AnticlusterManager(
         k=k_groups,
+        vectorizer=vectorizer,
         numeric_feature_cols=LoanRecordFeatures.numeric_fields(),
         hard_balance_cols=hard_balance_cols,
         size_tolerance=size_tolerance,
     )
+    loan_map: Dict[str, LoanRecord] = {lo.loan_id: lo for lo in loans}
 
     assignments_rows: List[dict] = []
     metrics_rows: List[dict] = []

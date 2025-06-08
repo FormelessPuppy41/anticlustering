@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 
 from ..loan.loan import LoanRecord, LoanStatus
-from ..loan.amortization import AmortizationSchedule, PaymentPeriod
+from .amortization import AmortizationSchedule, PaymentPeriod
 
 # --------------------------------------------------------------------------- #
 #                            ――  Public facade  ――                            #

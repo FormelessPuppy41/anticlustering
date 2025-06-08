@@ -15,32 +15,112 @@ import math
 from typing import Any, Dict, Iterable, List, Sequence, Optional
 
 import numpy as np
+import pandas as pd
 from dateutil import parser as _p
 
 from sklearn.preprocessing import StandardScaler
 
 from .loan import LoanRecord, LoanStatus
-
+from .utils import _parse_date
 
 # ── helpers ───────────────────────────────────────────────────────────────
-def _parse_percent(p: str | float) -> float:
-    """'13.56%' → 13.56; '13.56' → 13.56; 0.1356 → 13.56"""
-    if isinstance(p, (int, float)):
-        return float(p) * (100 if p <= 1 else 1)
-    return float(str(p).strip().rstrip("%"))
+import numpy as np
+import pandas as pd
+from typing import Union
+
+# --------------------------------------------------------------------------- #
+#                               % parser                                      #
+# --------------------------------------------------------------------------- #
+def _parse_percent(x: Union[str, float, int, pd.Series]) -> Union[float, pd.Series]:
+    """
+    Convert percentages to a *plain* numeric value in **percent units**.
+
+    • '13.56%'  → 13.56  
+    • '13.56'   → 13.56  
+    •  0.1356   → 13.56 (scalar or Series)
+
+    Accepts scalars **or** pd.Series.  Series processing is vectorised.
+    """
+    # ---------------------  vectorised branch  ---------------------------- #
+    if isinstance(x, pd.Series):
+        s = x.astype(str).str.strip()
+
+        # mark entries that end with '%'
+        has_pct = s.str.endswith('%')
+
+        # strip '%' and coerce to numeric (errors→NaN)
+        num = pd.to_numeric(s.str.rstrip('%'), errors='coerce')
+
+        # if original had '%': already in percent units
+        # else: values ≤1 are interpreted as fractional and multiplied by 100
+        num = np.where(has_pct, num, np.where(num <= 1, num * 100, num))
+
+        return pd.Series(num, index=x.index, name=x.name)
+
+    # ---------------------  scalar branch  -------------------------------- #
+    if isinstance(x, (int, float)):
+        return float(x) * (100 if x <= 1 else 1)
+    if isinstance(x, str):
+        x = x.strip()
+        if x.endswith('%'):
+            return float(x.rstrip('%'))
+        try:
+            return _parse_percent(float(x))  # recursion on numeric path
+        except ValueError:
+            raise ValueError(f"Cannot parse percentage from string: {x}")
+    raise TypeError(f"Unsupported type: {type(x)}. Expected str, int, float, or pd.Series.")
 
 
-def _parse_term(term: str | int) -> int:
-    """' 36 months' → 36"""
-    if isinstance(term, int):
-        return term
-    return int(str(term).strip().split(".")[0])
+def _parse_term(x: Union[str, int, pd.Series]) -> Union[int, pd.Series]:
+    """
+    Convert loan term strings like ' 36 months' to an integer **number of months**.
+
+    Accepts scalars **or** pd.Series.
+    """
+    if isinstance(x, pd.Series):
+        cleaned = (
+            x.astype(str)
+             .str.extract(r'(\d+)', expand=False)   # keep digits
+             .astype(float)                         # NaN→float
+             .astype('Int64')                       # optional pandas nullable int
+        )
+        return cleaned  # Series of ints/NA
+
+    if isinstance(x, int):
+        return x
+    if isinstance(x, str):
+        digits = ''.join(ch for ch in x if ch.isdigit())
+        if not digits:
+            raise ValueError(f"No digits found in term string: {x}")
+        return int(digits)
+    raise TypeError(f"Unsupported type: {type(x)}. Expected str, int, or pd.Series.")
 
 
-def _parse_date(val: Any):
-    if val in ("", None) or (isinstance(val, float) and math.isnan(val)):
-        return None
-    return _p.parse(str(val)).date()
+def _parse_log_numeric(col: pd.Series) -> pd.Series:
+    col = pd.to_numeric(col, errors="coerce")
+    return np.log1p(col)  # log1p handles log(0) correctly as 0.0
+
+def _parse_ordinal(col: pd.Series, ordinal_values: list) -> pd.Series:
+    """
+    Map an ordered category list → numeric codes (float).
+
+    Unknown / unseen labels ⇒ NaN, so they don’t distort scaling stats.
+    The returned Series keeps the **original index**.
+    """
+    cat = pd.Categorical(col, categories=ordinal_values, ordered=True)
+
+    # cat.codes is a NumPy array (int8/16) where unknowns are -1
+    codes = pd.Series(cat.codes, index=col.index, dtype="float")
+    codes.replace(-1, np.nan, inplace=True)    # unknown → NaN
+
+    return codes
+
+
+def _parse_categorical(col: pd.Series) -> pd.Categorical:
+    """
+    Convert a column to categorical type.
+    """
+    return pd.Categorical(col)
 
 
 # ── public API ────────────────────────────────────────────────────────────
@@ -68,95 +148,67 @@ def parse_raw_row(row: Dict[str, Any]) -> LoanRecord:
     )
 
 
-_NUMERIC_ATTRS: List[str] = [
-    "loan_amnt",
-    "int_rate",
-    "term_months",
-    "total_rec_prncp",
-    "total_rec_int",
-    "recoveries",
-    "annual_inc",
-]
-
-def _scale_loan(loan: LoanRecord) -> LoanRecord:
-    raise NotImplementedError
-
-def _weight_loan(loan: LoanRecord) -> LoanRecord:
-    """
-    Apply a feature weight vector to the loan record.
-    This is a placeholder for future implementation.
-    """
-    raise NotImplementedError
-
-#TODO: Add a scaler and a feature weight vector to this module.
-def vectorise_loan(loan: LoanRecord) -> np.ndarray:
-    """
-    Turn a ``LoanRecord`` into a **1-D numpy array** of numeric features.
-    Online/offline solvers can plug this into distance or variance
-    calculations.
-
-    By default we expose the seven attributes in ``_NUMERIC_ATTRS`` in
-    the declared order.  Adjust `_NUMERIC_ATTRS` if you need more.
-    """
-    return np.fromiter((getattr(loan, a) for a in _NUMERIC_ATTRS), dtype=float)
-
-
-def vectorise_list_loans(loans: Iterable[LoanRecord]) -> np.ndarray:
-    """
-    Turn a list of ``LoanRecord`` into a **2-D numpy array** of numeric features.
-    """
-    return np.array([vectorise_loan(loan) for loan in loans], dtype=float)
-
-def vectorise_records(
-    records: Sequence[LoanRecord] | LoanRecord,
-    columns: Sequence[str],
+def parse_kaggle_dataframe(
+    df                : pd.DataFrame,
     *,
-    scale: bool = False,
-    log_columns: Optional[Sequence[str]] = None,
-    weights: Optional[dict[str, float]] = None,
-    scaler: Optional[StandardScaler] = None,
-) -> tuple[np.ndarray, Optional[StandardScaler]]:
+    keep_cols         : list[str],
+    percentage_cols   : list[str],
+    term_cols         : list[str],
+    date_cols         : list[str],
+    log_numeric_cols  : list[str],
+    ordinal_cols      : dict[str, int],
+    categorical_cols  : list[str],
+    passthrough_cols  : list[str],
+    fill_numeric_nan  : float = 0.0,
+) -> pd.DataFrame:
     """
-    Parameters
-    ----------
-    records      : list of LoanRecord OR a single LoanRecord
-    columns      : field names to extract
-    scale        : whether to apply StandardScaler
-    log_columns  : subset of columns to apply np.log1p
-    weights      : optional per-dimension weights
-    scaler       : reuse scaler if provided
-
     Returns
     -------
-    ndarray of shape (n_samples, n_features)
-    fitted scaler or None
+    Cleaned copy of *df* – **same columns**, same dtypes as LoanRecord expects.
     """
-    # Handle single LoanRecord
-    if isinstance(records, LoanRecord):
-        records = [records]
+    # ---------- whitelist & validate columns --------------------------------
+    df = df.copy()
+    missing = set(keep_cols) - set(df.columns)
+    if missing:
+        raise ValueError(f"keep_cols missing in DataFrame: {missing}")
+    df = df[keep_cols].copy()                    # drop everything else
 
-    records = list(records)  # In case it's a generator
+    declared_cols = (
+        percentage_cols
+        + term_cols
+        + date_cols
+        + log_numeric_cols
+        + list(ordinal_cols.keys())
+        + categorical_cols
+        + passthrough_cols
+    )
+    absent = set(declared_cols) - set(df.columns)
+    if absent:
+        raise ValueError(f"Declared columns not present in DataFrame: {absent}")
 
-    # Extract features
-    arr = np.array([[getattr(r, c) for c in columns] for r in records], dtype=float)
-
-    if log_columns:
-        for j, col in enumerate(columns):
-            if col in log_columns:
-                arr[:, j] = np.log1p(arr[:, j])
-
-    if scale:
-        if scaler is None:
-            scaler = StandardScaler().fit(arr)
-        arr = scaler.transform(arr)
-    else:
-        scaler = None
-
-    if weights:
-        w = np.array([weights.get(c, 1.0) for c in columns], dtype=float)
-        arr *= w
-
-    return arr, scaler
-
+    # ---------- fast vectorised parsing -------------------------------------
     
-    
+    for c in percentage_cols:
+        df[c] = _parse_percent(df[c])
+
+    for c in term_cols:
+        df[c] = _parse_term(df[c])
+
+    for c in date_cols:
+        df[c] = _parse_date(df[c])
+
+    for c in log_numeric_cols:
+        df[c] = _parse_log_numeric(df[c])
+
+    for c, ordinal_value in ordinal_cols.items():
+        df[c] = _parse_ordinal(df[c], ordinal_value)
+
+    for c in categorical_cols:
+        df[c] = _parse_categorical(df[c])
+
+    # minimal NaN handling so downstream objects receive proper floats
+    numeric_cols = df.select_dtypes(include=["number"]).columns
+    df[numeric_cols] = df[numeric_cols].fillna(fill_numeric_nan) 
+    #TODO: consider using a more sophisticated NaN handling strategy. e.g. imputation, etc. 
+
+    return df

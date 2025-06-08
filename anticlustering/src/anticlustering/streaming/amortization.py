@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Iterator, List, Sequence
 
-from .loan import LoanRecord, LoanStatus
+from ..loan.loan import LoanRecord, LoanStatus
 
 __all__ = [
     "PaymentPeriod",

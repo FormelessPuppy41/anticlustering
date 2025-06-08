@@ -24,9 +24,13 @@ from typing import Callable, Dict, Iterable, List, Sequence
 import numpy as np
 import pandas as pd
 
+from collections import Counter
+
 from .stream_manager import AnticlusterManager
-from ..loan.features import vectorise_loan as default_feature_vector
+from ..loan.vectorizer import LoanVectorizer
 from ..loan.loan import LoanRecord
+
+
 
 
 # --------------------------------------------------------------------------- #
@@ -94,8 +98,7 @@ def balance_score_categorical(
 
 def within_group_variance(
     manager: "AnticlusterManager",
-    loan_lookup: dict[str, "LoanRecord"],
-    feat_fn: callable = default_feature_vector,
+    loans_by_id: dict[str, "LoanRecord"]
 ) -> float:
     """
     Average within-group variance of the feature vectors.
@@ -104,28 +107,23 @@ def within_group_variance(
     ----------
     manager
         The current AnticlusterManager (has groups + membership).
-    loan_lookup
+    loans_by_id
         Mapping {loan_id -> LoanRecord}.  Needed because
         `manager._index[lid]` stores only the group number.
     feat_fn
         Function that converts a LoanRecord to a numeric 1-D vector.
     """
-    all_vecs: list[np.ndarray] = []
+    vectorizer = manager.vectorizer
+    all_var: list[np.ndarray] = []
 
     for grp in manager._groups:
         if grp.size == 0:
             continue
 
-        vecs = np.stack(
-            [feat_fn(loan_lookup[lid]) for lid in grp.members]   # <-- FIX
-        )
-        all_vecs.append(vecs)
+        member_vecs = vectorizer.transform([loans_by_id[lid] for lid in grp.members])
+        all_var.append(np.var(member_vecs, axis=0).mean())
 
-    if not all_vecs:
-        return 0.0
-
-    variances = [np.var(v, axis=0).mean() for v in all_vecs]
-    return float(np.mean(variances))
+    return float(np.mean(all_var)) if all_var else 0.0
 
 
 # --------------------------------------------------------------------------- #
@@ -136,8 +134,7 @@ def within_group_variance(
 def group_summary(
     manager         : AnticlusterManager,
     loans_by_id     : Dict[str, LoanRecord],
-    cat_cols        : Sequence[str] | None                  = None,
-    feat_fn         : Callable[[LoanRecord], np.ndarray]    = default_feature_vector,
+    cat_cols        : Sequence[str] | None                  = None
 ) -> pd.DataFrame:
     """
     Return a DataFrame with *one row per group* summarising:
@@ -149,26 +146,28 @@ def group_summary(
     This is handy for quick eyeballing in a notebook or logging snapshots.
     """
     cat_cols = tuple(cat_cols or [])
-    feat_dim = len(feat_fn(next(iter(loans_by_id.values()))))
-
-    records = []
+    vec_dim = manager.vectorizer.transform(
+        [next(iter(loans_by_id.values()))]
+    ).shape[1]
+    
+    records: List[dict] = []
     for g_idx, grp in enumerate(manager._groups):
-        row = {"group": g_idx, "size": grp.size}
+        row: dict = {"group": g_idx, "size": grp.size}
+
         # numeric centroid
         if grp.centroid is not None:
-            for d in range(feat_dim):
-                row[f"centroid_{d}"] = grp.centroid[d]
+            row.update({f"centroid_{d}": grp.centroid[d] for d in range(vec_dim)})
         else:
-            for d in range(feat_dim):
-                row[f"centroid_{d}"] = np.nan
+            row.update({f"centroid_{d}": np.nan for d in range(vec_dim)})
 
         # categorical proportions
         for col in cat_cols:
             values = [getattr(loans_by_id[lid], col) for lid in grp.members]
             if values:
-                counts = pd.Series(values).value_counts(normalize=True)
-                for cat_val, prop in counts.items():
-                    row[f"{col}={cat_val}"] = prop
+                counts = Counter(values)
+                total = sum(counts.values())
+                for val, cnt in counts.items():
+                    row[f"{col}={val}"] = cnt / total
         records.append(row)
 
     return pd.DataFrame(records).fillna(0.0)

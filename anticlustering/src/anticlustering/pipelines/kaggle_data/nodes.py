@@ -13,7 +13,7 @@ import joblib
 
 from ...loan.loan import LoanRecord, LoanStatus
 from ...streaming.simulator import LoanSimulator
-from ...loan.features import parse_raw_row
+from ...loan.features import parse_raw_row, parse_kaggle_dataframe
 
 _LOG = logging.getLogger(__name__)
 
@@ -46,8 +46,6 @@ def _reduce_sample(
     return df.copy()
 
 
-
-from ...loan.preprocessor import parse_kaggle_dataframe
 def parse_kaggle_data(
     df_raw,
     kaggle_columns : dict[str, Any],

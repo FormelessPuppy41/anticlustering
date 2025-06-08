@@ -31,7 +31,7 @@ from typing import Dict, Iterable, List, Sequence, Tuple, Callable
 import numpy as np
 
 from ..loan.loan import LoanRecord, LoanStatus
-from ..loan.features import vectorise_loan, vectorise_records
+from ..loan.vectorizer import LoanVectorizer
 
 # --------------------------------------------------------------------------- #
 #                               Anticluster class                             #
@@ -108,6 +108,7 @@ class AnticlusterManager:
     def __init__(
         self,
         k                   : int,
+        vectorizer          : LoanVectorizer,
         numeric_feature_cols: Sequence[str],
         *,
         log_columns         : Sequence[str] | None      = None,
@@ -120,6 +121,10 @@ class AnticlusterManager:
             raise ValueError("Need at least two anticlusters.")
         
         self.k                                  = k
+        self.vectorizer                         = vectorizer
+        self._n_numeric: int                    = vectorizer.n_numeric
+
+        #TODO: Most of these are not used in the current implementation,
         self.cols                               = numeric_feature_cols
         self.log_cols                           = log_columns
         self.scale                              = scale
@@ -131,6 +136,7 @@ class AnticlusterManager:
 
         self._groups        : List[_GroupState] = [_GroupState() for _ in range(k)]
         self._index         : Dict[str, Tuple[int, np.ndarray, Tuple[str, ...]]] = {}
+        self._dim           : int = 0 # current common feature vector length
 
     # ------------------------------------------------------------------ #
     #                           public facade                            #
@@ -160,51 +166,22 @@ class AnticlusterManager:
             return  # nothing to do
 
         # 0 ── vectorise the whole batch in one call
-        vec, _ = vectorise_records(
-            new_loans,
-            self.cols,
-            scale=self.scale,
-            log_columns=self.log_cols,
-            weights=self.weights,
-            scaler=self._scaler
-        )
-        vec = vec
+        X = self.vectorizer.transform(new_loans)
+        self._ensure_dim(X.shape[1])
 
         # initialise caches if first call
         if not hasattr(self, "_records"):
             self._records  = []
-            self._features = np.empty((0, vec.shape[1]), dtype=float)
+            self._features = np.empty((0, X.shape[1]), dtype=float)
 
         # 1 ── iterate over loans & their feature rows (still Python-level,
         #       but all expensive math is pre-vectorised)
-        for loan, vec in zip(new_loans, vec, strict=True):
+        for loan, vec in zip(new_loans, X, strict=True):
+            self._assign_single(loan, vec)
 
-            cat_keys = tuple(getattr(loan, col) for col in self.hard_cols)
-            candidate_idxs = self._legal_groups(cat_keys)
-            if not candidate_idxs:           # fallback if no legal group
-                candidate_idxs = range(self.k)
+        a, b = self.vectorizer.partial_update(new_loans)
+        self._rescale_all_vectors(a, b)
 
-            best_idx, best_score = None, -math.inf
-            for idx in candidate_idxs:
-                grp = self._groups[idx]
-                # distance to centroid (empty group → huge dist = good)
-                if grp.centroid is None:
-                    dist = 1e6
-                else:
-                    dist = np.linalg.norm(vec - grp.centroid)
-                # small penalty for oversized groups
-                size_penalty = grp.size / max(1, self.avg_group_size())
-                score = dist / (1 + size_penalty)
-                if score > best_score:
-                    best_idx, best_score = idx, score
-
-            # 2 ── commit the assignment
-            self._groups[best_idx].add(loan.loan_id, vec, cat_keys)
-            self._index[loan.loan_id] = (best_idx, vec, cat_keys)
-
-            # 3 ── append raw + feature for optional analysis later
-            self._records.append(loan)
-            self._features = np.vstack([self._features, vec])
 
 
     def add_loan(self, loan: LoanRecord) -> int:
@@ -221,38 +198,13 @@ class AnticlusterManager:
         int : Index of the chosen group.
         """
         # Vectorise a single loan
-        vec, _ = vectorise_records(
-            loan,
-            self.cols,
-            scale=self.scale,
-            log_columns=self.log_cols,
-            weights=self.weights,
-            scaler=self._scaler
-        )
-        vec = vec[0]  # unpack single (1, d) → (d,)
+        vec = self.vectorizer.transform(loan)
+        self._ensure_dim(len(vec))
+        idx = self._assign_single(loan, vec)
 
-        cat_keys = tuple(getattr(loan, col) for col in self.hard_cols)
-        candidate_idxs = self._legal_groups(cat_keys)
-
-        if not candidate_idxs:
-            candidate_idxs = range(self.k)
-
-        best_idx, best_score = None, -math.inf
-        for idx in candidate_idxs:
-            group = self._groups[idx]
-            if group.centroid is None:
-                dist = 1e6
-            else:
-                dist = np.linalg.norm(vec - group.centroid)
-            size_penalty = group.size / max(1, self.avg_group_size())
-            score = dist / (1 + size_penalty)
-            if score > best_score:
-                best_idx, best_score = idx, score
-
-        self._groups[best_idx].add(loan.loan_id, vec, cat_keys)
-        self._index[loan.loan_id] = (best_idx, vec, cat_keys)
-
-        return best_idx
+        a, b = self.vectorizer.partial_update([loan])
+        self._rescale_all_vectors(a, b)
+        return idx
 
 
     def remove_loan(self, loan_id: str) -> int:
@@ -275,6 +227,63 @@ class AnticlusterManager:
             raise KeyError(f"Loan {loan_id} not found") from exc
         self._groups[idx].remove(loan_id, vec, cat_keys)
         return idx
+
+    # ------------------------------------------------------------------ #
+    #                     internal assignment logic                      #
+    # ------------------------------------------------------------------ #
+    def _assign_single(self, loan: LoanRecord, vec: np.ndarray) -> int:
+        cat_keys = tuple(getattr(loan, c) for c in self.hard_cols)
+        candidate_idxs = [
+            i for i in range(self.k) if self._group_accepts(i, cat_keys)
+        ] or range(self.k)
+
+        best_idx, best_score = None, -math.inf
+        for i in candidate_idxs:
+            g = self._groups[i]
+            # distance to centroid (empty ⇒ huge distance)
+            dist = 1e6 if g.centroid is None else np.linalg.norm(vec - g.centroid)
+            size_penalty = g.size / max(1, self.avg_group_size())
+            score = dist / (1 + size_penalty)
+            if score > best_score:
+                best_idx, best_score = i, score
+
+        grp = self._groups[best_idx]
+        grp.add(loan.loan_id, vec, cat_keys)
+        self._index[loan.loan_id] = (best_idx, vec, cat_keys)
+        return best_idx
+    
+    # ------------------------------------------------------------------ #
+    #                 helpers to keep scales consistent                  #
+    # ------------------------------------------------------------------ #
+    def _ensure_dim(self, new_dim: int) -> None:
+        """Pad all stored vectors / centroids with zeros if dimension grew."""
+        if new_dim <= self._dim:
+            return
+
+        pad = (0, new_dim - self._dim)
+        for g in self._groups:
+            if g.centroid is not None:
+                g.centroid = np.pad(g.centroid, pad)
+
+        for lid, (idx, vec, cat_keys) in list(self._index.items()):
+            vec = np.pad(vec, pad)
+            self._index[lid] = (idx, vec, cat_keys)
+
+        self._dim = new_dim
+
+    def _rescale_all_vectors(self, a: np.ndarray, b: np.ndarray) -> None:
+        """Apply affine rescale to every stored vector & centroid."""
+        n = self._n_numeric
+
+        # update centroids
+        for g in self._groups:
+            if g.centroid is not None:
+                g.centroid[:n] = a * g.centroid[:n] + b
+
+        # update cached individual vectors (used for removal)
+        for lid, (idx, vec, cat_keys) in self._index.items():
+            new_vec = a * vec[:n] + b
+            self._index[lid] = (idx, new_vec, cat_keys)
 
     # ----------  monitoring / helpers  ---------- #
 

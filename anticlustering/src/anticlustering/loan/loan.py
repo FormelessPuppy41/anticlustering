@@ -18,12 +18,11 @@ import math
 from dataclasses import dataclass, field, fields
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional, Union, Dict, Any, get_type_hints, get_args, get_origin
+import decimal
 
-import numpy as np
-import pandas as pd
-from dateutil import parser as _p
-from dateutil.relativedelta import relativedelta
+
+from .utils import _parse_date, _add_months, _raise
 
 
 _LOG = logging.getLogger(__name__)
@@ -91,54 +90,53 @@ class LoanStatus(str, Enum):
 # Helpers
 # ------------------------------------------------------------------------------- #
 
-def _parse_date(val: Any) -> Optional[_dt.date]:
-    """Coerce most imaginable inputs → `datetime.date | None`."""
-    # already datetime-like
-    if isinstance(val, (_dt.date, _dt.datetime, pd.Timestamp)):
-        return val.date() if hasattr(val, "date") else val
-    # None / NaN
-    if val is None or (isinstance(val, float) and math.isnan(val)):
-        return None
-    # epoch numbers
-    if isinstance(val, (int, np.integer, float, np.floating)):
-        if val > 1e13: ts = pd.to_datetime(int(val), unit="ns", errors="coerce")
-        elif val > 1e9: ts = pd.to_datetime(int(val), unit="s", errors="coerce")
-        else:           ts = pd.Timestamp("1970-01-01") + pd.Timedelta(days=float(val))
-        return None if pd.isna(ts) else ts.date()
-    # strings
-    try:
-        return _p.parse(str(val)).date()
-    except Exception:                                           # pragma: no cover
-        _LOG.warning("Unparsable date value: %s", val)
-        return None
-
-
-def _add_months(d: _dt.date, months: int) -> _dt.date:
-    """Excel-style month arithmetic that keeps month-ends intuitive."""
-    return (d + relativedelta(months=months))
-
-def _raise(msg: str) -> None:                                   # tiny helper
-    raise ValueError(msg)
-
-
 class LoanRecordFeatures:
+    """Introspective utilities for LoanRecord field names."""
+
+    _NUMERIC_PRIMITIVES      = {int, float, decimal.Decimal}
+    _CATEGORICAL_PRIMITIVES  = {str}
+
+    # ------------------------------------------------------------------ #
+    #                 helpers that understand Optional[…], etc.          #
+    # ------------------------------------------------------------------ #
+    @classmethod
+    def _is_numeric(cls, t) -> bool:
+        """Return True if *t* ultimately resolves to a numeric primitive."""
+        origin = get_origin(t)
+        if origin is Union:                      # e.g. int | None
+            return any(cls._is_numeric(a) for a in get_args(t)
+                       if a is not type(None))
+        if origin is not None:                   # Annotated[int, …] etc.
+            return cls._is_numeric(origin)
+        return t in cls._NUMERIC_PRIMITIVES
+
+    @classmethod
+    def _is_categorical(cls, t) -> bool:
+        """Return True if *t* ultimately resolves to a categorical primitive."""
+        origin = get_origin(t)
+        if origin is Union:
+            return any(cls._is_categorical(a) for a in get_args(t)
+                       if a is not type(None))
+        if origin is not None:
+            return cls._is_categorical(origin)
+        return t in cls._CATEGORICAL_PRIMITIVES
+
+    # ------------------------------------------------------------------ #
+    #                      public convenience methods                    #
+    # ------------------------------------------------------------------ #
     @classmethod
     def numeric_fields(cls) -> list[str]:
-        """
-        Returns the names of all numeric fields in LoanRecord.
+        """All numeric (float / int / Decimal) **non-optional** attributes."""
+        hints = get_type_hints(LoanRecord)       # resolves forward refs
+        return [name for name, t in hints.items() if cls._is_numeric(t)]
 
-        Assumes:
-        - floats and ints are considered numeric.
-        - Optional[float] / Optional[int] are not considered numeric.
-        """
-        numeric_types = (float, int)
 
-        return [
-            f.name
-            for f in fields(LoanRecord)
-            if f.type in numeric_types
-        ]
-    
+    @classmethod
+    def categorical_fields(cls) -> list[str]:
+        """All categorical (str) **non-optional** attributes."""
+        hints = get_type_hints(LoanRecord)
+        return [name for name, t in hints.items() if cls._is_categorical(t)]
+
 
 # ----------------------------------------------------------------------------
 # Core dataclass
@@ -247,13 +245,6 @@ class LoanRecord:
         return max(self.loan_amnt - self.total_rec_prncp, 0.0)
     
 
-    def vector(self) -> np.ndarray:
-        from .vectorizer import LoanVectorizer
-        """Convert this LoanRecord to a feature vector using the LoanVectorizer."""
-        vectorizer = LoanVectorizer.fit([self])  # fit on a single record
-        return vectorizer.transform([self])[0]
-        
-
 
     # ------ Factory constructors from raw CSV row (or dict‑like) ------
     @classmethod
@@ -310,42 +301,8 @@ class LoanRecord:
             – days    since epoch      (e.g. 17175.0)
         Returns a `datetime.date` or None on failure.
         """
-        import math
-        import numpy as np
-        import pandas as pd
-        from dateutil import parser as _p
-
-        # 1 – already a datetime‐like
-        if isinstance(val, pd.Timestamp):
-            return val.date()                   # <-- ensure datetime.date
-        if isinstance(val, _dt.datetime):
-            return val.date()                   # <-- ensure datetime.date
-        if isinstance(val, _dt.date):
-            return val                     # <-- ensure datetime.date
-
-        # 2 – NaNs
-        if val is None or (isinstance(val, float) and math.isnan(val)):
-            return None
-
-        # 3 – numeric pathways
-        if isinstance(val, (int, np.integer, float, np.floating)):
-            # nanoseconds?
-            if val > 1e13:                      # > ~2001 in ns
-                ts = pd.to_datetime(int(val), unit="ns", errors="coerce")
-            # seconds?
-            elif val > 1e9:                     # > 2001 in s
-                ts = pd.to_datetime(int(val), unit="s", errors="coerce")
-            # days?
-            else:
-                ts = pd.Timestamp("1970-01-01") + pd.Timedelta(days=float(val))
-            return None if pd.isna(ts) else ts.date()
-
-        # 4 – assume string
-        try:
-            return _p.parse(str(val)).date()
-        except Exception:                       # pragma: no cover
-            _LOG.warning("Unparsable date value: %s", val)
-            return None
+        from .utils import _parse_date as parse_date
+        return parse_date(val)
 
 
     # ------------------------------------------------------------------
