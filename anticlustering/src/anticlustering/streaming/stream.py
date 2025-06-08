@@ -28,7 +28,7 @@ import bisect
 import logging
 from dateutil.relativedelta import relativedelta
 
-from .loan import LoanRecord, LoanStatus, _add_months
+from ..loan.loan import LoanRecord, LoanStatus, _add_months
 
 _LOG = logging.getLogger(__name__)
 

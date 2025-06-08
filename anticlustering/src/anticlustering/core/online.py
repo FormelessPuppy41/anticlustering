@@ -31,10 +31,10 @@ import pandas as pd
 from .base import AntiCluster, Status
 from ..core import register_solver  # <- decorator to register this solver
 from ._config import OnlineConfig  # <- add this dataclass to your config.py
-from ..lending_club.core.loan import LoanRecord
-from ..lending_club.core.stream import StreamEngine
-from ..lending_club.core.anticluster import AnticlusterManager
-from ..lending_club.core.quality_metrics import within_group_variance
+from ..loan.loan import LoanRecord
+from ..streaming.stream import StreamEngine
+from ..streaming.stream_manager import AnticlusterManager
+from ..streaming.quality_metrics import within_group_variance
 
 from sklearn.preprocessing import StandardScaler
 

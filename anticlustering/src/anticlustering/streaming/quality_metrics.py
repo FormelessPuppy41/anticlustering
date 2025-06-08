@@ -24,9 +24,9 @@ from typing import Callable, Dict, Iterable, List, Sequence
 import numpy as np
 import pandas as pd
 
-from ..core.anticluster import AnticlusterManager
-from ..core.features import vectorise_loan as default_feature_vector
-from ..core.loan import LoanRecord
+from .stream_manager import AnticlusterManager
+from ..loan.features import vectorise_loan as default_feature_vector
+from ..loan.loan import LoanRecord
 
 
 # --------------------------------------------------------------------------- #

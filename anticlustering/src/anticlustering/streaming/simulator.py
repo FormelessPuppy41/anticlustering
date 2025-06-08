@@ -26,8 +26,8 @@ from typing import Iterable, List, Tuple
 import numpy as np
 import pandas as pd
 
-from .loan import LoanRecord, LoanStatus
-from .amortization import AmortizationSchedule, PaymentPeriod
+from ..loan.loan import LoanRecord, LoanStatus
+from ..loan.amortization import AmortizationSchedule, PaymentPeriod
 
 # --------------------------------------------------------------------------- #
 #                            ――  Public facade  ――                            #

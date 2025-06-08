@@ -139,7 +139,7 @@ class LoanRecordFeatures:
             if f.type in numeric_types
         ]
     
-    
+
 # ----------------------------------------------------------------------------
 # Core dataclass
 # ----------------------------------------------------------------------------
@@ -246,6 +246,14 @@ class LoanRecord:
     def outstanding_principal(self) -> float:
         return max(self.loan_amnt - self.total_rec_prncp, 0.0)
     
+
+    def vector(self) -> np.ndarray:
+        from .vectorizer import LoanVectorizer
+        """Convert this LoanRecord to a feature vector using the LoanVectorizer."""
+        vectorizer = LoanVectorizer.fit([self])  # fit on a single record
+        return vectorizer.transform([self])[0]
+        
+
 
     # ------ Factory constructors from raw CSV row (or dict‑like) ------
     @classmethod

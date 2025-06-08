@@ -42,8 +42,8 @@ from typing import List
 import pandas as pd
 from kedro.pipeline import Pipeline, node
 
-from ...lending_club.core.loan import LoanRecord, LoanRecordFeatures
-from ...lending_club.core.stream import StreamEngine
+from ...loan.loan import LoanRecord, LoanRecordFeatures
+from ...streaming.stream import StreamEngine
 
 log = logging.getLogger(__name__)
 
@@ -141,9 +141,9 @@ import numpy as np
 import pandas as pd
 from kedro.pipeline import Pipeline, node
 
-from ...lending_club.core.anticluster import AnticlusterManager
-from ...lending_club.core.loan import LoanRecord
-from ...lending_club.core.quality_metrics import (
+from ...streaming.stream_manager import AnticlusterManager
+from ...loan.loan import LoanRecord
+from ...streaming.quality_metrics import (
     balance_score_categorical,
     within_group_variance,
 )

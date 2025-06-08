@@ -10,10 +10,10 @@ from typing import List, Optional, Any
 import datetime as _dt
 import joblib
 
-from ...preprocessing.online_data import preprocess_node
-from ...lending_club.core.loan import LoanRecord, LoanStatus
-from ...lending_club.core.simulator import LoanSimulator
-from ...lending_club.core.features import parse_raw_row
+
+from ...loan.loan import LoanRecord, LoanStatus
+from ...streaming.simulator import LoanSimulator
+from ...loan.features import parse_raw_row
 
 _LOG = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ def _reduce_sample(
 
 
 
-from ...preprocessing.general_online_preprocessor import parse_kaggle_dataframe
+from ...loan.preprocessor import parse_kaggle_dataframe
 def parse_kaggle_data(
     df_raw,
     kaggle_columns : dict[str, Any],
@@ -86,69 +86,6 @@ def parse_kaggle_data(
     )
     print(df)
     return df
-
-
-def process_kaggle_data(
-        df              : pd.DataFrame, 
-        kaggle_columns  : dict[str, Any],
-        reduce_n        : int | None = None,
-        scale           : bool = False,
-        rng_number      : int = 42
-    ) -> pd.DataFrame:
-    """Clean raw Kaggle LendingClub data and (optionally) sample+scale it.
-
-    Parameters
-    ----------
-    kaggle_columns
-        Dict loaded from YAML with keys:
-        ``percentage_columns``, ``log_numeric_columns``,
-        ``special_numeric_columns``, ``keep_columns``.
-    """
-    print(df)
-    #  ---- Unpack the kaggle column yml dict --------------------------------------------
-    percentage_cols         : list  = kaggle_columns["percentage_columns"]      or []
-    log_numeric_cols        : list  = kaggle_columns["log_numeric_columns"]     or []
-    special_numeric_cols    : list  = kaggle_columns["special_numeric_columns"] or []
-    date_cols               : list  = kaggle_columns["date_columns"]            or []
-    ordinal_cols            : dict  = kaggle_columns["ordinal_columns"]         or {}
-    categorical_cols        : list  = kaggle_columns["categorical_columns"]     or []
-    passthrough_cols        : list  = kaggle_columns["passthrough_columns"]     or []
-    keep_cols               : list  = kaggle_columns["keep_columns"]            or []
-    # --------------------------------------------
-
-    _LOG.info("Obtained Kaggle columns from YAML: %s", kaggle_columns)
-
-    if reduce_n == "None" or reduce_n is None or reduce_n == "0" or reduce_n == 0 or reduce_n == "":
-        reduce_n = None
-    
-    if reduce_n is not None:
-        prev_len    = len(df)
-        df          = _reduce_sample(df, n=int(reduce_n), rng_number=rng_number)
-        _LOG.info("Reduced Kaggle data to %d rows from %s rows (random sampling)", len(df), prev_len)
-    
-    numeric_feature_cols = set(keep_cols.copy()) \
-        - set(passthrough_cols) - set(date_cols) - set(percentage_cols) \
-        - set(ordinal_cols.keys()) - set(categorical_cols) - set(special_numeric_cols)
-    
-    numeric_feature_cols = list(numeric_feature_cols)
-    
-    df =  preprocess_node(
-        df,
-        keep_columns            =keep_cols,
-        numeric_feature_columns =numeric_feature_cols,
-        scale                   =scale,
-        return_df               =True,
-        percentage_columns      =percentage_cols,
-        date_columns            =date_cols,
-        ordinal_columns         =ordinal_cols,
-        categorical_columns     =categorical_cols,
-        special_numeric_columns =special_numeric_cols,
-        log_numeric_columns     =log_numeric_cols,
-        passthrough_columns     =passthrough_cols
-    )
-    print(df)
-    return df
-    
 
 
 def kaggle_df_to_loan_records(df: pd.DataFrame) -> List[LoanRecord]:

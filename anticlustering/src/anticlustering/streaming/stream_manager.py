@@ -30,8 +30,8 @@ from typing import Dict, Iterable, List, Sequence, Tuple, Callable
 
 import numpy as np
 
-from .loan import LoanRecord, LoanStatus
-from .features import vectorise_loan, vectorise_records
+from ..loan.loan import LoanRecord, LoanStatus
+from ..loan.features import vectorise_loan, vectorise_records
 
 # --------------------------------------------------------------------------- #
 #                               Anticluster class                             #

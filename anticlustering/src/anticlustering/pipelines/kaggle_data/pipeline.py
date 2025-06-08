@@ -8,7 +8,6 @@ from kedro.pipeline import node, Pipeline, pipeline  # noqa
 from .nodes import (
     load_kaggle_data, 
     create_test_kaggle_data, 
-    process_kaggle_data, 
     parse_kaggle_data,
     kaggle_df_to_loan_records,
     loan_records_to_long_df
@@ -37,18 +36,6 @@ def create_pipeline(**kwargs) -> Pipeline:
         #     outputs=C.Data.KAGGLE_TEST,
         #     name="create_test_kaggle_data_node_1418",
         # ), #FIXME: Remove this and use the reduce_n parameter in the process_kaggle_data node instead
-        # node(
-        #     func=process_kaggle_data,
-        #     inputs=[
-        #         C.Data.KAGGLE_TEST,
-        #         P.OnlineAnticluster.KAGGLE_COLUMNS,
-        #         P.OnlineAnticluster.REDUCE_N,
-        #     P.OnlineAnticluster.SCALE,
-        #         P.RNG_NUMBER
-        #     ],
-        #     outputs=C.Data.KAGGLE_PROCESSED,
-        #     name="load_kaggle_data_node_1920",
-        # ),
         node(
             func=parse_kaggle_data,
             inputs=[
