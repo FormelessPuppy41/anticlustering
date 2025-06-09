@@ -107,9 +107,11 @@ class ILPAntiCluster(AntiCluster):
 
         # solve ------------------------------------------------------------
         _LOG.info("Starting ILP anticlustering: N=%d, K=%d", N, self.cfg.n_clusters)
-        t0 = time.perf_counter()
-        labels, score, status, gap = self._model.solve()
-        runtime = time.perf_counter() - t0
+        labels, score, status, gap, runtime = self._model.solve()
+        _LOG.info(
+            "ILP anticlustering completed in %.2f seconds with status: %s",
+            runtime, status
+        )
     
         # set labels and score ----------------------------------------
         self._set_labels(labels)
@@ -139,7 +141,23 @@ class PreClusterILPAntiCluster(ILPAntiCluster):
                 "Setting preclustering=True."
                 )
             self.cfg.preclustering = True
-        self._model: Optional[ModelAntiClusterILP] = None
+
+        self._model         : Optional[ModelAntiClusterILP] = None
+        self._runtime_pre   : float | None = None
+        self._runtime_ilp   : float | None = None
+
+    @property
+    def runtime_pre_(self) -> float | None:
+        """Runtime of the preclustering step, or None if not applicable."""
+        if self._runtime_pre is None:
+            raise RuntimeError("Call `.fit()` before accessing runtime_pre_.")
+        return self._runtime_pre
+    @property
+    def runtime_ilp_(self) -> float | None:
+        """Runtime of the ILP step, or None if not applicable."""
+        if self._runtime_ilp is None:
+            raise RuntimeError("Call `.fit()` before accessing runtime_ilp_.")
+        return self._runtime_ilp
     
     def fit(
             self, 
@@ -191,19 +209,27 @@ class PreClusterILPAntiCluster(ILPAntiCluster):
             K       =self.cfg.n_clusters,
             config  =self.cfg
         )
-        preclust.solve()
+
+        _,_,_,_, solve_time = preclust.solve()
+        self._runtime_pre = solve_time
+        
+        _LOG.info(
+            "Preclustering completed in %.2f seconds with status: %s",
+            self._runtime_pre, preclust.status_
+        )
+
         if preclust.status_ != "optimal":
             _LOG.error(
                 "Preclustering failed to find an optimal solution: %s", preclust.status_
             )
             raise RuntimeError("Preclustering failed; cannot proceed with ILP.")
 
-        
+        forbidden_pairs = preclust.extract_group_pairs()
         anticlust = ModelAntiClusterILP(
             D                   =D,
             K                   =self.cfg.n_clusters,
             config              =self.cfg,
-            forbidden_pairs     =preclust.extract_group_pairs()
+            forbidden_pairs     =forbidden_pairs
         )
         
         # build model ------------------------------------------------------
@@ -215,17 +241,20 @@ class PreClusterILPAntiCluster(ILPAntiCluster):
             self._model.apply_warm_start(self.cfg.warm_start)
 
         # solve ------------------------------------------------------------
-        _LOG.info("Starting ILP anticlustering: N=%d, K=%d", N, self.cfg.n_clusters)
-        t0 = time.perf_counter()
-        labels, score, status, gap = self._model.solve()
-        runtime = time.perf_counter() - t0
-    
+        _LOG.info("Starting Precluster/ILP anticlustering: N=%d, K=%d", N, self.cfg.n_clusters)
+        labels, score, status, gap, solve_time = self._model.solve()
+        self._runtime_ilp = solve_time
+        _LOG.info(
+            "ILP anticlustering completed in %.2f seconds with status: %s",
+            self._runtime_ilp, status
+        )
+
         # set labels and score ----------------------------------------
         self._set_labels(labels)
         self._set_score(score)
         self._set_status(status, gap)
-        self._set_runtime(runtime)
-
+        self._set_runtime(solve_time)
+        self._runtime = self._runtime_pre + self._runtime_ilp
 
         return self
 

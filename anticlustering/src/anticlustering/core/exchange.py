@@ -55,7 +55,7 @@ class ExchangeAntiCluster(AntiCluster):
         self._model = ExchangeHeuristic(D=D, K=self.cfg.n_clusters,config=self.cfg)
 
         # solve ------------------------------------------------------------
-        _LOG.info("Starting ILP anticlustering: N=%d, K=%d", N, self.cfg.n_clusters)
+        _LOG.info("Starting Exchange anticlustering: N=%d, K=%d", N, self.cfg.n_clusters)
         t0 = time.perf_counter()
         labels, score, status = self._model.solve(X)
         runtime = time.perf_counter() - t0

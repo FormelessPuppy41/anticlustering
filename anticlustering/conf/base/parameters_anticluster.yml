@@ -17,29 +17,29 @@ anticluster:
     #- solver_name   : cluster_editing
     #  method        : exchange
     - solver_name   : ilp
-      time_limit    : 1              # forwarded into ILPConfig
+      time_limit    : 14400              # forwarded into ILPConfig
       mip_gap       : 0.01
       max_n         : 30
     - solver_name   : ilp_precluster             # ILP + preclustering variant
       preclustering : true
-      time_limit    : 1
-      mip_gap       : 0.05
-      max_n         : 70
+      time_limit    : 14400
+      mip_gap       : 0.01
+      max_n         : 30
     - solver_name   : exchange
-      time_limit    : 60
+      time_limit    : 180
       objective     : diversity
       metric        : euclidean
       max_sweeps    : 100
       patience      : 1000
       verbose       : true
-    - solver_name   : online
-      hard_balance_cols: # list of columns to balance hard
-        - "grade"
-        - "sub_grade"
-      size_tolerance      : 10 #int
-      rebalance_frequency : 12 #int
-      stream_start        : "2017-01-01" # str, date in format YYYY-MM-DD. Maybe None
-      stream_end          : "2020-12-31" # str, date in format YYYY-MM-DD. Maybe None
+    # - solver_name   : online
+    #   hard_balance_cols: # list of columns to balance hard
+    #     - "grade"
+    #     - "sub_grade"
+    #   size_tolerance      : 10 #int
+    #   rebalance_frequency : 12 #int
+    #   stream_start        : "2017-01-01" # str, date in format YYYY-MM-DD. Maybe None
+    #   stream_end          : "2020-12-31" # str, date in format YYYY-MM-DD. Maybe None
       
 
 online:

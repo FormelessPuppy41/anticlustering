@@ -59,10 +59,18 @@ def benchmark_all(
             solver.fit(X)
 
             # Set runtime to nan if it did not finish. That is, labels are not set.
+            try:
+                ilp_solve = solver.runtime_ilp_
+                pre_solve = solver.runtime_pre_
+            except:
+                ilp_solve = pre_solve = float('nan')
+
             row = dict(
                 N=N,
                 solver=label,
                 runtime=solver.runtime_,
+                runtime_ilp=ilp_solve,
+                runtime_pre=pre_solve,
                 score=solver.score_,
                 status=solver.status_,
                 aborted=solver.status_ != 'ok',

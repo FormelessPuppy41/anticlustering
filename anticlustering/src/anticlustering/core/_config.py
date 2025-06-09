@@ -38,6 +38,7 @@ class ILPConfig(BaseConfig):
     warm_start      : Optional[np.ndarray]  = None
     preclustering   : bool                  = False  # whether to use preclustering
     verbose         : bool                  = False  # print solver output
+    lazy_transitivity   : bool              = True  # whether to use lazy transitivity cuts
 
     # future extensions ------------------------------------------------------
     categories  : Optional[np.ndarray]      = None  # 1‑D categorical strata
