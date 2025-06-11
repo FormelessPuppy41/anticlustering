@@ -79,6 +79,8 @@ class PartitionVisualizer:
         self._df: pd.DataFrame = pd.concat([self.data, self.labels], axis=1)
         self.label_name: str = label_name
 
+        solver_order: list[str] = ["ILP", "ILP_Precluster", "Exchange"]
+
     # ---------------------------------------------------------------------
     # Tabular summaries
     # ---------------------------------------------------------------------
@@ -345,6 +347,19 @@ class PartitionVisualizer:
         if pct_gap:
             tbl["gap"] = 100 * tbl["gap"] / tbl["baseline"]
 
+        # ---------------------------------------------------------------
+        #  enforce solver drawing order + colour map
+        #     (ILP  »  ILP_Precluster  »  Exchange)
+        # ---------------------------------------------------------------
+        solver_order = ["ILP", "ILP_Precluster", "Exchange"]
+        palette      = dict(zip(
+            solver_order,
+            plt.rcParams["axes.prop_cycle"].by_key()["color"][: len(solver_order)],
+        ))
+
+        # avoid misleading gaps where no ILP baseline exists (N > max_n)
+        tbl.loc[tbl["baseline"].isna(), "gap"] = np.nan
+
 
         # ------------------------------------------------------------------
         # 2. create figure --------------------------------------------------
@@ -355,8 +370,15 @@ class PartitionVisualizer:
         )
 
         # ––– upper panel ––––––––––––––––––––––––––––––––––––––––––––––––
-        for s, grp in tbl.groupby("solver"):
-            ax0.plot(grp["N"], grp["score"], marker="o", label=s)
+        for z, s in enumerate(reversed(solver_order), start=1):   # back → front
+            if s not in tbl["solver"].unique():
+                continue
+            grp = tbl[tbl["solver"] == s]
+            ax0.plot(
+                grp["N"], grp["score"], marker="o",
+                label=s, color=palette[s], zorder=z + 3
+            )
+        
         ax0.set_ylabel("Objective value")
         ax0.set_title(f"Anticlustering objective vs N  (K = {n_clusters})")
         if log_y:
@@ -365,8 +387,15 @@ class PartitionVisualizer:
         ax0.legend(title="Solver", loc="upper left")
 
         # ––– lower panel ––––––––––––––––––––––––––––––––––––––––––––––––
-        for s, grp in tbl.groupby("solver"):
-            ax1.plot(grp["N"], grp["gap"], marker="o", label=s)
+        for z, s in enumerate(reversed(solver_order), start=1):
+            if s not in tbl["solver"].unique():
+                continue
+            grp = tbl[tbl["solver"] == s]
+            ax1.plot(
+                grp["N"], grp["gap"], marker="o",
+                label=s, color=palette[s], zorder=z + 3
+            )
+
         ax1.set_xlabel("Problem size N")
         ax1.set_ylabel("Gap" + (" [%]" if pct_gap else ""))
         ax1.grid(alpha=.3)

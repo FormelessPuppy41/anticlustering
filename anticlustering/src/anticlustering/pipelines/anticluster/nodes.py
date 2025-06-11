@@ -1,12 +1,17 @@
 import time
 from pathlib import Path
 from typing import Dict, Tuple, List, Any
+import logging
 
 import pandas as pd
 import matplotlib.pyplot as plt
 
 from ...core import get_solver, AntiCluster, BaseConfig, ILPConfig, ExchangeConfig, OnlineConfig
 from ...visualisation import PartitionVisualizer
+
+from ...metrics.dissimilarity_matrix import within_group_distance, get_dissimilarity_matrix
+
+_LOG = logging.getLogger(__name__)
 
 def benchmark_all(
     data            : Dict[str, pd.DataFrame],
@@ -58,6 +63,21 @@ def benchmark_all(
            
             solver.fit(X)
 
+            # Check try value of score:
+            D = get_dissimilarity_matrix(X)
+            true_score = within_group_distance(D, solver.labels_)
+            if abs(true_score - solver.score_) > 1e-6:
+                _LOG.warning(
+                    "Solver %s returned a score of %.2f, but the true score is %.2f. "
+                    "This may indicate an issue with the solver implementation.",
+                    label, solver.score_, true_score
+                )
+            else:
+                _LOG.info(
+                    "Solver %s returned a correct score of %.2f.",
+                    label, solver.score_
+                )
+
             # Set runtime to nan if it did not finish. That is, labels are not set.
             try:
                 ilp_solve = solver.runtime_ilp_
@@ -97,7 +117,7 @@ def benchmark_all(
     )
     fig.tight_layout()
 
-    return table, fig, (model_bank if store_models else None)
+    return table, fig, (model_bank if store_models else pd.DataFrame())
 
 
 

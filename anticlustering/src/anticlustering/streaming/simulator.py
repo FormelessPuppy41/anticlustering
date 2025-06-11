@@ -192,7 +192,7 @@ def _derive_status_column(
     Timestamp/date mismatches.
     """
     default_cutoff = (
-        loan.last_pymnt_date
+        loan.last_pymnt_d
         if loan.loan_status in {LoanStatus.DEFAULT, LoanStatus.CHARGED_OFF}
         else None
     )
@@ -201,7 +201,7 @@ def _derive_status_column(
     for ts in date_series:
         pd_date = ts.date() if isinstance(ts, pd.Timestamp) else ts
 
-        if pd_date < loan.issue_date:
+        if pd_date < loan.issue_d:
             raise ValueError("Simulated date precedes issue_d")
 
         if default_cutoff and pd_date >= default_cutoff:

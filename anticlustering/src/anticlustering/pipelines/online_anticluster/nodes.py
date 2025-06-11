@@ -53,7 +53,7 @@ from ...streaming.quality_metrics import (
 )
 
 
-log = logging.getLogger(__name__)
+_LOG = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------- #
 #                               Node functions                                #
@@ -89,13 +89,13 @@ def simulate_stream(
         _dt.date.fromisoformat(stream_end_date) if stream_end_date else None
     )
 
-    log.info(
+    _LOG.info(
         "Simulating stream from %s to %s over %d loans",
         start or "min(issue_d)",
         end or "final departure",
         len(loans),
     )
-    log.info("Example loans: %s", loans[0] if loans else "No loans provided")
+    _LOG.info("Example loans: %s", loans[0] if loans else "No loans provided")
 
     engine = StreamEngine(loans, start_date=start, end_date=end)
 
@@ -110,8 +110,8 @@ def simulate_stream(
         )
 
     df_events = pd.DataFrame(records)
-    log.info("Generated %d monthly event rows", len(df_events))
-    log.info("Sample events:\n%s", df_events.head(48))
+    _LOG.info("Generated %d monthly event rows", len(df_events))
+    _LOG.info("Sample events:\n%s", df_events.head(48))
     return df_events
 
 
@@ -119,7 +119,7 @@ def update_anticlusters(
     loans: List[LoanRecord],
     events_df: pd.DataFrame,
     k_groups: int,
-    kaggle_cols: List[str],
+    kaggle_cols: Dict[str, List[str]],
     hard_balance_cols: Sequence[str],
     size_tolerance: int,
     rebalance_frequency: int,
@@ -134,14 +134,12 @@ def update_anticlusters(
     """
     vectorizer = LoanVectorizer.fit(
         loans,
-        numeric_attrs= LoanRecordFeatures.numeric_fields(),
-        categorical_attrs= LoanRecordFeatures.categorical_fields(),
+        kaggle_cols
     )
     # ---- prep ----------------------------------------------------------- #
     mgr = AnticlusterManager(
         k=k_groups,
         vectorizer=vectorizer,
-        numeric_feature_cols=LoanRecordFeatures.numeric_fields(),
         hard_balance_cols=hard_balance_cols,
         size_tolerance=size_tolerance,
     )
@@ -165,6 +163,7 @@ def update_anticlusters(
 
         # ---------- use the normalised variables; DO NOT touch row[...] again ---
         arrivals   = [loan_map[lid] for lid in arrival_ids]
+        departures = [loan_map[lid] for lid in departure_ids]
         departures = departure_ids
 
         # ----- arrivals ----- #
@@ -174,14 +173,16 @@ def update_anticlusters(
 
 
         # ----- departures ----- #
-        for lid in departures:
-            try:
-                mgr.remove_loan(lid)
-            except KeyError:
-                log.warning("Departure %s not in active pool (date=%s)", lid, date)
-
+        if departures:
+            mgr.remove_loans(departures)
+        
         # ----- optional rebalance ----- #
         if rebalance_frequency > 0 and (row_idx % rebalance_frequency == 0):
+            #TODO: This will never happen bcs probabily of exactly 0 is very small. Fix this. 
+            # This is wrong, it is done every year. So, it is done correctly.
+            _LOG.info(
+                "Rebalancing at %s (row %d)", date, row_idx
+            )
             mgr.rebalance()
 
         # ----- record assignments (long) ----- #
@@ -196,6 +197,7 @@ def update_anticlusters(
             "date": date,
             "group_sizes": mgr.group_sizes(),
             "within_var": within_group_variance(mgr, loan_map),
+            "group_centroids": mgr.group_centroids(),
         }
         for cat in metrics_cat_cols:
             metrics_row[f"balance_{cat}"] = balance_score_categorical(

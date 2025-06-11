@@ -39,3 +39,44 @@ def get_dissimilarity_matrix(X: np.ndarray, distance_measure: str = 'euclidean')
         raise ValueError(f"Unsupported distance measure: {distance_measure}. Only 'euclidean' is supported.")
     # For now, only Euclidean distance is implemented
     
+def within_group_distance(
+        D: np.ndarray,
+        labels: np.ndarray,
+    ) -> float:
+    """
+    Total within-group dissimilarity for a given partition.
+
+    Parameters
+    ----------
+    D :
+        (N×N) **symmetric** dissimilarity matrix with zeros on the diagonal.
+    labels :
+        1-D iterable of length *N* assigning each observation to a group.
+
+    Returns
+    -------
+    float
+        \\( \sum_{g \\in G} \sum_{i<j \\in g} D_{ij} \\) – i.e. the sum of all
+        pairwise distances **inside** every group.  Divisor 2 is applied so
+        each unordered pair contributes only once.
+
+    Notes
+    -----
+    *Time complexity*: \\(O(N²)\\) in the worst case; in practice dominated by
+    the size of each group’s sub-matrix.
+    """
+    if D.shape[0] != D.shape[1]:
+        raise ValueError("D must be square")
+    labels = np.asarray(labels)
+    if len(labels) != D.shape[0]:
+        raise ValueError("labels length mismatch")
+
+    total = 0.0
+    for g in np.unique(labels):
+        idx = np.where(labels == g)[0]
+        if idx.size < 2:           # singleton → zero contribution
+            continue
+        sub = D[np.ix_(idx, idx)]
+        total += sub.sum() * 0.5   # divide by 2 to avoid double-count
+
+    return float(total)

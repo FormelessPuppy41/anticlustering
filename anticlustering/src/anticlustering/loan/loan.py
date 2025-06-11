@@ -18,7 +18,7 @@ import math
 from dataclasses import dataclass, field, fields
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, Union, Dict, Any, get_type_hints, get_args, get_origin
+from typing import Optional, Union, Dict, Any, get_type_hints, get_args, get_origin, List
 import decimal
 
 
@@ -92,6 +92,17 @@ class LoanStatus(str, Enum):
 
 class LoanRecordFeatures:
     """Introspective utilities for LoanRecord field names."""
+    def __init__(self, kaggle_cols: Optional[Dict[str, Any]] = None):
+        """Initialize with Kaggle column names if available."""
+        self.kaggle_cols = kaggle_cols or {}
+
+        self.numeric_columns            : List[str] = self.kaggle_cols.get("numeric_columns",           [])
+        self.log_numeric_columns        : List[str] = self.kaggle_cols.get("log_numeric_columns",       [])
+        self.percentage_columns         : List[str] = self.kaggle_cols.get("percentage_columns",        [])
+        self.date_columns               : List[str] = self.kaggle_cols.get("date_columns",              [])
+        self.special_numeric_columns    : List[str] = self.kaggle_cols.get("special_numeric_columns",   [])
+        self.ordinal_columns            : Dict[List[str]] = self.kaggle_cols.get("ordinal_columns",           [])
+        self.categorical_columns        : List[str] = self.kaggle_cols.get("categorical_columns",       [])
 
     _NUMERIC_PRIMITIVES      = {int, float, decimal.Decimal}
     _CATEGORICAL_PRIMITIVES  = {str}
@@ -178,12 +189,12 @@ class LoanRecord:
 
     loan_id             : str
     loan_amnt           : float
-    term_months         : int
-    issue_date          : _dt.date
+    term                : int
+    issue_d             : _dt.date
     int_rate            : float  # annual nominal rate in *percent* – e.g. 13.56
     grade               : str  # e.g. "A", "B", "C" etc.
     sub_grade           : str  # e.g. "A1", "B2", "C3" etc.
-    last_pymnt_date     : Optional[_dt.date]
+    last_pymnt_d     : Optional[_dt.date]
     loan_status         : LoanStatus
     total_rec_prncp     : float
     recoveries          : float
@@ -197,13 +208,13 @@ class LoanRecord:
         object.__setattr__(
             self, 
             "issue_date",
-             _parse_date(self.issue_date) or _raise("issue_date missing")
+             _parse_date(self.issue_d) or _raise("issue_d missing")
             )
-        if self.last_pymnt_date:
+        if self.last_pymnt_d:
             object.__setattr__(
                 self, 
                 "last_pymnt_date", 
-                _parse_date(self.last_pymnt_date)
+                _parse_date(self.last_pymnt_d)
             )
         if self.int_rate > 1.0:
             # convert from percent to decimal
@@ -219,7 +230,7 @@ class LoanRecord:
     @property
     def monthly_payment(self) -> Decimal:
         if self._monthly_payment == 0:
-            r, n = self.monthly_rate, self.term_months
+            r, n = self.monthly_rate, self.term
             pay = (self.loan_amnt / n) if r == 0 else self.loan_amnt * r * (1 + r) ** n / ((1 + r) ** n - 1)
             object.__setattr__(self, "_monthly_payment", Decimal(str(round(pay, 2))))
         return self._monthly_payment
@@ -229,7 +240,7 @@ class LoanRecord:
     #  ----- Lifecycle helpers --------------------------------
     @property
     def maturity_date(self) -> _dt.date:
-        return _add_months(self.issue_date, self.term_months)
+        return _add_months(self.issue_d, self.term)
 
 
     @property
@@ -237,7 +248,7 @@ class LoanRecord:
         return (
             self.maturity_date 
             if self.loan_status is LoanStatus.CURRENT
-            else self.last_pymnt_date or self.maturity_date
+            else self.last_pymnt_d or self.maturity_date
         )
 
     @property
@@ -311,6 +322,6 @@ class LoanRecord:
 
     def __str__(self) -> str:  # pragma: no cover – cosmetic only
         return (
-            f"LoanRecord(id={self.loan_id}, amt={self.loan_amnt}, term={self.term_months}, "
+            f"LoanRecord(id={self.loan_id}, amt={self.loan_amnt}, term={self.term}, "
             f"rate={self.int_rate}, status={self.loan_status})"
         )

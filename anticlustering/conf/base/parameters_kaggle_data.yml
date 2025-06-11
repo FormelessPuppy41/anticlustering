@@ -19,6 +19,9 @@ kaggle_columns:
     - issue_d
     - last_pymnt_d
 
+  numeric_columns:
+  
+
   log_numeric_columns:
     - annual_inc
     - loan_amnt

@@ -45,6 +45,10 @@ class _ModelEdgeILPBase:
                                 for (i, j) in forbidden_pairs or []}
         self.cfg             = config
 
+        # safe guard against forbidden pairs:
+        if not self.cfg.preclustering:
+            self.forbidden_pairs = None
+        
         if self.N % K != 0:
             raise ValueError(f"N={self.N} not divisible by K={K}")
 
@@ -77,8 +81,9 @@ class _ModelEdgeILPBase:
         )
 
         # fix forbidden pairs to 0
-        for (i, j) in self.forbidden_pairs:
-            x[i, j].ub = 0
+        if self.forbidden_pairs:
+            for (i, j) in self.forbidden_pairs:
+                x[i, j].ub = 0
 
         # objective
         obj = gp.quicksum(self.D[i, j] * x[i, j]

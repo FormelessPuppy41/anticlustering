@@ -5,6 +5,8 @@ from scipy.spatial.distance import squareform, pdist
 
 from ..core._config import ExchangeConfig, Status
 
+from ..metrics.dissimilarity_matrix import get_dissimilarity_matrix
+
 import logging
 
 
@@ -21,6 +23,7 @@ class ExchangeHeuristic:
             config: ExchangeConfig
             ):
         self.cfg = config
+        self.D = D
 
         if self.cfg.random_state is not None:
             np.random.seed(self.cfg.random_state)
@@ -37,18 +40,23 @@ class ExchangeHeuristic:
         """
         Main entry: returns cluster labels (shape (n,))
         """
+        if self.D is None:
+            if X is None:
+                raise ValueError("Either D or X must be provided.")
+            self.D = get_dissimilarity_matrix(X)
+            
         rng = np.random.default_rng(self.cfg.random_state)
         n, _ = X.shape
-
-        # 1. pre-compute pairwise distance matrix  (upper-tri condense → square)
-        D_cond = pdist(X, metric=self.cfg.metric)  # shape (n*(n-1)/2,)
-        D = squareform(D_cond)                     # shape (n,n)
 
         # 2. balanced random initial assignment
         labels = self._balanced_initialisation(n, rng)
 
         # 3. pre-compute intra-cluster sums
-        intra_sum = self._compute_all_intra(labels, D)
+        intra_sum = self._compute_all_intra(labels, self.D)
+
+        # 4. build neighbour lists if needed
+        if self.cfg.k_neighbours:
+            self._build_neighbour_lists(self.D)
 
         # 4. local-search by swaps
         current_obj = intra_sum.sum()
@@ -57,6 +65,29 @@ class ExchangeHeuristic:
         status = Status.solved
 
         for sweep in range(1, self.cfg.max_sweeps + 1):
+            best_delta = 0.0
+            best_pair = None
+
+            for i in range(n):
+                cand = (
+                    self._neigh[i]
+                    if self.cfg.k_neighbours
+                    else range(i+1, n)
+                )
+                for j in cand:
+                    if j <= i or labels[i] == labels[j]:
+                        continue
+                    delta = self._swap_gain(i, j, labels[i], labels[j], labels, self.D)
+                    if delta > best_delta:
+                        best_delta = delta
+                        best_pair = (i, j)
+
+            if best_delta > 1e-12:
+                i, j = best_pair
+                self._apply_swap(i, j, labels[i], labels[j], labels, intra_sum, self.D)
+                current_obj += best_delta
+            else:
+                break
             improved = False
 
             for i in range(n):
@@ -65,11 +96,11 @@ class ExchangeHeuristic:
                     if ci == cj:
                         continue
 
-                    delta = self._swap_gain(i, j, ci, cj, labels, D)
+                    delta = self._swap_gain(i, j, ci, cj, labels, self.D)
                     if delta > 0:             # accept best-improving
                         # update bookkeeping
                         self._apply_swap(
-                            i, j, ci, cj, labels, intra_sum, D
+                            i, j, ci, cj, labels, intra_sum, self.D
                         )
                         current_obj += delta
                         improved = True
@@ -121,6 +152,12 @@ class ExchangeHeuristic:
             intra = D[np.ix_(idx, idx)]
             intra_sum[c] = np.sum(np.triu(intra, 1))
         return intra_sum
+    
+    def _build_neighbour_lists(self, D):
+        # called once before the first sweep
+        idx = np.argsort(D, axis=1)[:, 1:self.cfg.k_neighbours + 1]
+        self._neigh = [row.tolist() for row in idx]
+
 
     def _swap_gain(
         self,

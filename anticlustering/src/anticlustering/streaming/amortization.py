@@ -130,9 +130,9 @@ class AmortizationSchedule(Sequence[PaymentPeriod]):
         """
         cls.loan = loan
         principal = loan.loan_amnt
-        term = loan.term_months
+        term = loan.term
         annual_rate = loan.int_rate
-        start_date = loan.issue_date
+        start_date = loan.issue_d
 
         instalment = cls.monthly_payment(principal, annual_rate, term)
         r = _annual_rate_to_monthly(annual_rate)
@@ -148,7 +148,7 @@ class AmortizationSchedule(Sequence[PaymentPeriod]):
             else:
                 current_date_cmp = current_date
 
-            lpd = loan.last_pymnt_date
+            lpd = loan.last_pymnt_d
             if isinstance(lpd, pd.Timestamp):
                 lpd_cmp = lpd.date()
             else:

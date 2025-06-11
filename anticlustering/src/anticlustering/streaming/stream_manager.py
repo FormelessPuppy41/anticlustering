@@ -27,6 +27,9 @@ import math
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Sequence, Tuple, Callable
+import logging
+
+_LOG = logging.getLogger(__name__)
 
 import numpy as np
 
@@ -109,11 +112,7 @@ class AnticlusterManager:
         self,
         k                   : int,
         vectorizer          : LoanVectorizer,
-        numeric_feature_cols: Sequence[str],
         *,
-        log_columns         : Sequence[str] | None      = None,
-        scale               : bool = False,
-        weights             : Dict[str, float] | None   = None,
         hard_balance_cols   : Sequence[str] | None      = None,
         size_tolerance      : int                       = 1,
     ) -> None:
@@ -124,19 +123,12 @@ class AnticlusterManager:
         self.vectorizer                         = vectorizer
         self._n_numeric: int                    = vectorizer.n_numeric
 
-        #TODO: Most of these are not used in the current implementation,
-        self.cols                               = numeric_feature_cols
-        self.log_cols                           = log_columns
-        self.scale                              = scale
-        self.weights                            = weights
-        self._scaler                            = None  # StandardScaler, if scale=True
-        
         self.size_tolerance                     = size_tolerance
         self.hard_cols      : Tuple[str, ...]   = tuple(hard_balance_cols or [])
 
         self._groups        : List[_GroupState] = [_GroupState() for _ in range(k)]
         self._index         : Dict[str, Tuple[int, np.ndarray, Tuple[str, ...]]] = {}
-        self._dim           : int = 0 # current common feature vector length
+        self._dim           : int               = 0 # current common feature vector length
 
     # ------------------------------------------------------------------ #
     #                           public facade                            #
@@ -162,6 +154,13 @@ class AnticlusterManager:
         • If ``scale=True`` the running ``StandardScaler`` is updated
           incrementally by passing the previous fitted instance back in.
         """
+        _LOG.info(
+            "Current size of anticlusters: %s. \nAdding %d new loans to anticlusters. \nCurrent Centroids: %s",
+            self.group_sizes(),
+            len(new_loans),
+            [g.centroid.tolist() if g.centroid is not None else None for g in self._groups],
+        )
+
         if not new_loans:
             return  # nothing to do
 
@@ -181,6 +180,12 @@ class AnticlusterManager:
 
         a, b = self.vectorizer.partial_update(new_loans)
         self._rescale_all_vectors(a, b)
+        _LOG.info(
+            "Updated anticlusters after adding %d loans: %s. With centroids: %s",
+            len(new_loans),
+            self.group_sizes(),
+            [g.centroid.tolist() if g.centroid is not None else None for g in self._groups],
+        )
 
 
 
@@ -206,7 +211,25 @@ class AnticlusterManager:
         self._rescale_all_vectors(a, b)
         return idx
 
+    def remove_loans(self, loan_ids: Iterable[str]) -> List[int]:
+        """
+        Remove a batch of loans by their IDs.  Returns the group indices they left.
 
+        Parameters
+        ----------
+        loan_ids : Iterable[str]
+            Unique identifiers of the loans to be removed.
+
+        Returns
+        -------
+        List[int]
+            Indices of the groups from which the loans were removed (0 … K-1).
+        """
+        idxs = []
+        for loan_id in loan_ids:
+            idxs.append(self.remove_loan(loan_id))
+        return idxs
+    
     def remove_loan(self, loan_id: str) -> int:
         """
         Remove a loan when it departs.  Returns the group index it left.
@@ -227,11 +250,37 @@ class AnticlusterManager:
             raise KeyError(f"Loan {loan_id} not found") from exc
         self._groups[idx].remove(loan_id, vec, cat_keys)
         return idx
+    
+
 
     # ------------------------------------------------------------------ #
     #                     internal assignment logic                      #
     # ------------------------------------------------------------------ #
     def _assign_single(self, loan: LoanRecord, vec: np.ndarray) -> int:
+        """
+        Assign a single loan to the best anticluster based on its feature vector.
+        This method finds the group that maximises the distance to the centroid
+        while respecting hard constraints on categorical balance.
+
+        Parameters
+        ----------
+        loan : LoanRecord
+            The loan to be assigned.
+        vec : np.ndarray
+            Feature vector of the loan, already transformed by the vectorizer.
+
+        Returns
+        -------
+        int
+            Index of the group to which the loan was assigned (0 … K-1).
+
+        Raises
+        ------
+        ValueError
+            If the loan's feature vector does not match the expected dimension.
+        KeyError
+            If the loan's categorical keys do not match the expected hard columns.
+        """
         cat_keys = tuple(getattr(loan, c) for c in self.hard_cols)
         candidate_idxs = [
             i for i in range(self.k) if self._group_accepts(i, cat_keys)
@@ -247,7 +296,7 @@ class AnticlusterManager:
             if score > best_score:
                 best_idx, best_score = i, score
 
-        grp = self._groups[best_idx]
+        grp: _GroupState = self._groups[best_idx]
         grp.add(loan.loan_id, vec, cat_keys)
         self._index[loan.loan_id] = (best_idx, vec, cat_keys)
         return best_idx
@@ -272,18 +321,67 @@ class AnticlusterManager:
         self._dim = new_dim
 
     def _rescale_all_vectors(self, a: np.ndarray, b: np.ndarray) -> None:
-        """Apply affine rescale to every stored vector & centroid."""
+        """
+        Apply an affine rescale x_new = a * x_old + b to every stored vector
+        and centroid, but only over the first `n_numeric` dimensions.
+
+        Parameters
+        ----------
+        a : np.ndarray of shape (n_numeric,)
+            Multiplicative factors per numeric dimension.
+        b : np.ndarray of shape (n_numeric,)
+            Additive offsets per numeric dimension.
+
+        Raises
+        ------
+        ValueError
+            If len(a) or len(b) does not equal n_numeric.
+        """
         n = self._n_numeric
+        # Nothing to do if there are no numeric features
+        if n == 0:
+            _LOG.warning(
+                "No numeric features to rescale; skipping rescale operation."
+                " (a=%s, b=%s)", a, b
+            )
+            return
 
-        # update centroids
+        # Ensure the scaling factors match expected dimension
+        if a.size != n or b.size != n:
+            _LOG.error(
+                "Rescale factors have incorrect length: "
+                "expected %d, got a=%s, b=%s", n, a.size, b.size
+            )
+            raise ValueError(
+                f"Cannot rescale: expected factors of length {n}, "
+                f"got lengths a={a.size}, b={b.size}"
+            )
+
+        # --- 1) Update centroids ---
         for g in self._groups:
-            if g.centroid is not None:
-                g.centroid[:n] = a * g.centroid[:n] + b
+            if g.centroid is None or g.centroid.size == 0:
+                _LOG.warning(
+                    "Skipping rescale for empty group centroid: %s", g.centroid
+                )
+                continue
+            # centroid is 1d array of length n_total
+            g.centroid = self.vectorizer.rescale_features(
+                g.centroid[np.newaxis, :],  # shape (1, n_total)
+                a, b
+            )[0]  # back to 1d
 
-        # update cached individual vectors (used for removal)
-        for lid, (idx, vec, cat_keys) in self._index.items():
-            new_vec = a * vec[:n] + b
-            self._index[lid] = (idx, new_vec, cat_keys)
+        for loan_id, (idx, vec, cat_keys) in self._index.items():
+            if vec.size == 0:
+                _LOG.warning(
+                    "Skipping rescale for empty vector of loan %s: %s",
+                    loan_id, vec
+                )
+                continue
+            new_vec = self.vectorizer.rescale_features(
+                vec[np.newaxis, :],
+                a, b
+            )[0]
+            self._index[loan_id] = (idx, new_vec, cat_keys)
 
     # ----------  monitoring / helpers  ---------- #
 
@@ -296,6 +394,17 @@ class AnticlusterManager:
             List[int]: List of sizes of each group (0 … K-1).
         """
         return [g.size for g in self._groups]
+    
+    def group_centroids(self) -> List[np.ndarray | None]:
+        """
+        Return a list of current group centroids (feature vectors).
+
+        Returns:
+        -------
+            List[np.ndarray | None]: List of centroids for each group.
+                                     None if the group is empty.
+        """
+        return [g.centroid.tolist() if g.centroid is not None else None for g in self._groups]
 
     def avg_group_size(self) -> float:
         """
@@ -423,36 +532,3 @@ class AnticlusterManager:
         smallest = int(np.argmin(sizes))
         return largest, smallest
 
-
-# --------------------------------------------------------------------------- #
-#                              minimal smoke-test                             #
-# --------------------------------------------------------------------------- #
-
-if __name__ == "__main__":  # pragma: no cover
-    # fabricate three tiny loans
-    loans = [
-        LoanRecord(
-            loan_id=str(i),
-            loan_amnt=10000 + i * 500,
-            term_months=36,
-            int_rate=0.10 + i * 0.01,
-            issue_date=None,            # not used here
-            last_payment_date=None,     # not used here
-            status=LoanStatus.CURRENT,
-            total_rec_prncp=0.0,
-        )
-        for i in range(10)
-    ]
-
-    mgr = AnticlusterManager(k=3)
-    for lo in loans:
-        idx = mgr.add_loan(lo)
-        print(f"Added {lo.loan_id} → group {idx}")
-
-    print("Group sizes after adds:", mgr.group_sizes())
-    # remove a couple
-    mgr.remove_loan("1")
-    mgr.remove_loan("4")
-    print("Group sizes after removals:", mgr.group_sizes())
-    print("Rebalance swaps:", mgr.rebalance())
-    print("Final snapshot:", mgr.snapshot())

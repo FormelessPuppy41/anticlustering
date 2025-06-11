@@ -23,6 +23,7 @@ from typing import Callable, Dict, Iterable, List, Sequence
 
 import numpy as np
 import pandas as pd
+import logging
 
 from collections import Counter
 
@@ -31,6 +32,7 @@ from ..loan.vectorizer import LoanVectorizer
 from ..loan.loan import LoanRecord
 
 
+_LOG = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
@@ -115,7 +117,9 @@ def within_group_variance(
     """
     vectorizer = manager.vectorizer
     all_var: list[np.ndarray] = []
-
+    _LOG.info(
+        "within_group_variance: computing variance for %d groups",
+    )
     for grp in manager._groups:
         if grp.size == 0:
             continue

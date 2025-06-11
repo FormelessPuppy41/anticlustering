@@ -104,10 +104,10 @@ class StreamEngine:
         end_date: _dt.date | None = None,
     ) -> None:
         # sort loans by issue_date so we can bisect arrivals efficiently
-        self._all_loans: List[LoanRecord] = sorted(loans, key=lambda lo: lo.issue_date)
-        self._arrival_dates: List[_dt.date] = [lo.issue_date for lo in self._all_loans]
+        self._all_loans: List[LoanRecord] = sorted(loans, key=lambda lo: lo.issue_d)
+        self._arrival_dates: List[_dt.date] = [lo.issue_d for lo in self._all_loans]
 
-        self.start_date   = start_date or min(lo.issue_date for lo in loans)
+        self.start_date   = start_date or min(lo.issue_d for lo in loans)
         self.end_date     = end_date if end_date else None
 
         self.current_date: _dt.date = self.start_date

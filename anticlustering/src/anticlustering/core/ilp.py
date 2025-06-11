@@ -98,7 +98,13 @@ class ILPAntiCluster(AntiCluster):
         self.cfg.validate(N)
     
         # build model ------------------------------------------------------
-        self._model = ModelAntiClusterILP(D=D, K=self.cfg.n_clusters, config=self.cfg)
+        self._model = ModelAntiClusterILP(
+            D=D, 
+            K=self.cfg.n_clusters, 
+            config=self.cfg,
+            forbidden_pairs=[]
+        )
+        self._runtime_pre = 0
 
         # warm‑start (optional) -------------------------------------------
         if self.cfg.warm_start is not None:

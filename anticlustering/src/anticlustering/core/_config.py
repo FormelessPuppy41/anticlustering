@@ -75,6 +75,7 @@ class ExchangeConfig(BaseConfig):
     patience        : int                   = 100
     verbose         : bool                  = False
     time_limit      : Optional[int]         = None  # seconds
+    k_neighbours    : int                   = 5
 
 
 @dataclass(slots=True)

@@ -24,13 +24,13 @@ anticluster:
       preclustering : true
       time_limit    : 14400
       mip_gap       : 0.01
-      max_n         : 30
+      max_n         : 70
     - solver_name   : exchange
       time_limit    : 180
       objective     : diversity
       metric        : euclidean
-      max_sweeps    : 100
-      patience      : 1000
+      max_sweeps    : 1
+      patience      : 1
       verbose       : true
     # - solver_name   : online
     #   hard_balance_cols: # list of columns to balance hard
