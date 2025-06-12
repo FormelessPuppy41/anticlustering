@@ -8,6 +8,17 @@ class Parameters:
         NUM_FEATURES  = "params:simulation.n_features"
         RNG_SEED      = "params:simulation.rng_seed"
 
+        class SimulationStudy:
+            K_VALUES        = "params:simulation_study.k_values"  # e.g. [2, 3, 4, 5]
+            N_RUNS          = "params:simulation_study.n_runs"    # e.g. 10
+
+            N_RANGE_MIN     = "params:simulation_study.n_range.min"  # e.g. 10
+            N_RANGE_MAX     = "params:simulation_study.n_range.max"  # e.g. 1000
+
+            DTR_UNIFORM     = "params:simulation_study.distributions.uniform"  # bool, e.g. True or False
+            DTR_NORMAL_STD  = "params:simulation_study.distributions.normal_std"   # bool, e.g. True or False
+            DTR_NORMAL_WIDE = "params:simulation_study.distributions.normal_wide"  # float, e.g. 0.0
+
     class KaggleData:
         KAGGLE_1418   = "params:kaggle_data.kaggle_1418"
         KAGGLE_1920   = "params:kaggle_data.kaggle_1920"
@@ -16,6 +27,9 @@ class Parameters:
         STORE_MODELS   = "params:anticluster.store_models"
         SOLVERS        = "params:anticluster.solvers"           # list of dicts
         K              = "params:anticluster.k"
+
+        class SIM_STUDY:
+            SOLVERS        = "params:anticluster.solvers_simulation_study"  # list of dicts
 
     class OnlineAnticluster:
         KAGGLE_COLUMNS      = "params:kaggle_columns"  # e.g. kaggle_columns_1920.yaml

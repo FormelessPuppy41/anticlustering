@@ -17,7 +17,8 @@ class Catalog:
         ANTICLUSTER_ASSIGNMENTS  = "anticluster_assignments"  # e.g. anticluster_assignments_2020-01-01
         ANTICLUSTER_METRICS      = "anticluster_metrics"      # e.g. anticluster_metrics_2020-01-01
 
-        SIM_DATA            = "all_simulated_data"
+        SIM_DATA                = "all_simulated_data"
+        SIMULATION_STUDY_DATA   = "simulation_study_data"
     
     
     ALL_MODELS              = "report_all_models"
@@ -25,6 +26,7 @@ class Catalog:
     class Visualisation:
         """Dataset names for visualisation outputs."""
         TABLE1              = "report_data_table1_replication"
+        TABLE2              = "report_data_table2_simulation_study"
         GRAPH1              = "report_data_graph1_replication"
 
         PARTITION_TABLE     = "visualisation_tables"  # e.g. "04_reporting/viz"

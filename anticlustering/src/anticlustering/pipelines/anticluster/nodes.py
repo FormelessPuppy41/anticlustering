@@ -4,9 +4,11 @@ from typing import Dict, Tuple, List, Any
 import logging
 
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 
 from ...core import get_solver, AntiCluster, BaseConfig, ILPConfig, ExchangeConfig, OnlineConfig
+from ...core._config import MatchingConfig, KMeansConfig, RandomConfig
 from ...visualisation import PartitionVisualizer
 
 from ...metrics.dissimilarity_matrix import within_group_distance, get_dissimilarity_matrix
@@ -120,5 +122,120 @@ def benchmark_all(
     return table, fig, (model_bank if store_models else pd.DataFrame())
 
 
+# ------- Simulation BenchMark ----------------------
+
+def _compute_M(X: np.ndarray, labels: np.ndarray) -> float:
+    # mean difference across clusters, averaged over features
+    df = pd.DataFrame(X)
+    means = df.groupby(labels).mean().values  # shape (K, n_features)
+    return np.mean(np.ptp(means, axis=0))
+
+def _compute_SD(X: np.ndarray, labels: np.ndarray) -> float:
+    # std‐difference across clusters, averaged over features
+    df = pd.DataFrame(X)
+    stds = df.groupby(labels).std(ddof=0).values
+    return np.mean(np.ptp(stds, axis=0))
 
 
+def benchmark_simulation(
+    simulation_data : pd.DataFrame,
+    solvers        : List[Dict[str, Any]],
+) -> pd.DataFrame:
+    """
+    Run each solver on every simulation run and aggregate into Table 2.
+
+    Simulation details as in Papenberg & Klau (2019): 10 000 runs
+    (5 000 with K=2; 5 000 with K=3); N∈[10,100] multiple of K; F∈[1,4];
+    dist ∈ {uniform[0,1], N(0,1), N(0,2)} :contentReference[oaicite:0]{index=0}.
+    Results are binned by N∈{10–20,21–40,42–100} as in Table 2 :contentReference[oaicite:1]{index=1}.
+    """
+    rows = []
+    for _, r in simulation_data.iterrows():
+        run = int(r["run_id"])
+        K   = int(r["K"])
+        N   = int(r["N"])
+        X   = np.array(r["stimuli"])
+        D   = get_dissimilarity_matrix(X)
+
+        # run each solver
+        for spec in solvers:
+            name = spec["solver_name"].lower()
+            specs = {k: v for k, v in spec.items() if k != 'solver_name'}
+
+            # skip matching if K!=2
+            if name == "matching" and K != 2:
+                continue
+            # ILP only for N == solver_limits["ilp_max_n"]
+            if name == "ilp" and N > 20:
+                continue
+            # ILP+precluster only for N == solver_limits["precluster_max_n"]
+            if name == "ilp_precluster" and N > 40:
+                continue
+
+            # build config
+            if name == "ilp":
+                cfg = ILPConfig(n_clusters=K, **specs)
+            elif name == "ilp_precluster":
+                cfg = ILPConfig(n_clusters=K, **specs)
+            elif name == "exchange":
+                cfg = ExchangeConfig(n_clusters=K, **specs)
+            elif name == "matching":
+                cfg = MatchingConfig(n_clusters=K, **specs)
+            elif name == "kmeans":
+                cfg = KMeansConfig(n_clusters=K, **specs)
+            elif name == "random":
+                cfg = RandomConfig(n_clusters=K, **specs)
+            else:
+                cfg = BaseConfig(n_clusters=K, **specs)
+
+            cfg.n_clusters = K  # ensure K is set correctly
+
+            solver = get_solver(name, config=cfg)
+            solver.fit(X, D=D)
+
+            # record raw score + diagnostics
+            score = solver.score_
+            labels = solver.labels_
+            M_val = _compute_M(X, labels)
+            SD_val = _compute_SD(X, labels)
+
+            rows.append({
+                "run": run,
+                "K": K,
+                "N": N,
+                "solver": name,
+                "score": score,
+                "M": M_val,
+                "SD": SD_val,
+            })
+
+    df = pd.DataFrame(rows)
+
+    # compute percent of best per run/K
+    df["best_score"] = df.groupby(["run", "K"])["score"].transform("max")
+    df["percent"]    = df["score"] / df["best_score"] * 100
+
+    # bin N into the three ranges
+    def bin_N(n):
+        if 10 <= n <= 20:   return "10–20"
+        if 21 <= n <= 40:   return "21–40"
+        if 42 <= n <= 100:  return "42–100"
+        return "other"
+    df["N_range"] = df["N"].apply(bin_N)
+
+    # aggregate means & SDs
+    table2 = (
+        df
+        .groupby(["K", "N_range", "solver"])
+        .agg(
+            percent_mean=("percent", "mean"),
+            percent_sd=("percent", "std"),
+            M_mean=("M", "mean"),
+            M_sd=("M", "std"),
+            SD_mean=("SD", "mean"),
+            SD_sd=("SD", "std"),
+        )
+        .reset_index()
+    )
+
+    return table2

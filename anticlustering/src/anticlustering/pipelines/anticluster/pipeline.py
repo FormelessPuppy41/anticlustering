@@ -1,7 +1,7 @@
 from kedro.pipeline import Pipeline, node
 
 from ...constants import Parameters as P, Catalog as C
-from .nodes import benchmark_all
+from .nodes import benchmark_all, benchmark_simulation
 
 
 def create_pipeline(**kwargs):
@@ -12,20 +12,81 @@ def create_pipeline(**kwargs):
     """
     return Pipeline(
         [
+            # node(
+            #     func=benchmark_all,
+            #     inputs=[
+            #         C.Data.SIM_DATA,                      # dict of DataFrames
+            #         P.Anticluster.K,              # n_clusters
+            #         P.Anticluster.SOLVERS,
+            #         P.Anticluster.STORE_MODELS,
+            #     ],
+            #     outputs=[
+            #         C.Visualisation.TABLE1,                        # timing table
+            #         C.Visualisation.GRAPH1,                       # convergence graph
+            #         C.ALL_MODELS,          # optional models
+            #     ],
+            #     name="benchmark_all_solvers",
+            # ),
             node(
-                func=benchmark_all,
+                func=benchmark_simulation,
                 inputs=[
-                    C.Data.SIM_DATA,                      # dict of DataFrames
-                    P.Anticluster.K,              # n_clusters
-                    P.Anticluster.SOLVERS,
-                    P.Anticluster.STORE_MODELS,
+                    C.Data.SIMULATION_STUDY_DATA,  # DataFrame with simulation study data
+                    P.Anticluster.SIM_STUDY.SOLVERS,
                 ],
-                outputs=[
-                    C.Visualisation.TABLE1,                        # timing table
-                    C.Visualisation.GRAPH1,                       # convergence graph
-                    C.ALL_MODELS,          # optional models
-                ],
-                name="benchmark_all_solvers",
-            )
+                outputs=C.Visualisation.TABLE2,  # timing table for simulation study
+                name="benchmark_simulation_study",
+            ),
         ]
     )
+
+
+
+
+"""
+Alright, I have already implemented the data_simulation. 
+
+The results is as following:
+
+Generated simulation study data with 10000 records.
+Example of data:     run_id  K distribution   N                                            stimuli
+0        1  2   normal_std  18  [[-1.8833284012268237, 1.1304778427875717], [1...
+1        1  3      uniform  80  [[0.6222891339424068, 0.5227913313323141, 0.53...
+2        2  2   normal_std  69  [[1.5396590729699147, 0.5043085018466044], [2....
+3        2  3   normal_std  49  [[-1.4542927965190087, -0.49978534124360413, -...
+4        3  2      uniform  49  [[0.568933869819802, 0.5145099813847384], [0.4...
+5        3  3  normal_wide  88  [[-2.2192951880175915, 2.05623819195222, -2.22...
+6        4  2   normal_std  17  [[-1.455628992404098, -0.4620675457186336], [-...
+7        4  3      uniform  73  [[0.4510852961584765, 0.2198826367831429, 0.53...
+8        5  2  normal_wide  28  [[-3.4944346746495234, -0.6473219899872756], [...
+9        5  3      uniform  18  [[0.24009011344252895, 0.1999851841903395, 0.4...
+10       6  2   normal_std  57  [[-0.148472068406966, -0.0045433567934511625],...
+11       6  3   normal_std  98  [[0.9321743772408836, -0.1284125828313069, 3.1...
+12       7  2   normal_std  76  [[-0.9975824103098268, 1.2147844765495195], [-...
+13       7  3  normal_wide  79  [[-2.8105428944507214, -1.0084201906007024, -2...
+14       8  2  normal_wide  75  [[-1.639226319719429, 2.9031747436919777], [1....
+15       8  3   normal_std  81  [[0.7896476747891843, -0.41756097311103335, -0...
+16       9  2  normal_wide  56  [[-0.9851799145771561, 1.6190910311002489], [0...
+17       9  3  normal_wide  21  [[0.9454392547375519, -0.8848551495592443, -2....
+18      10  2  normal_wide  86  [[2.367878247783668, -1.407811568851067], [-2....
+19      10  3   normal_std  50  [[1.2021738314308965, 1.3803847340611906, 0.45...
+20      11  2      uniform  55  [[0.09620205192790965, 0.9896494493925041], [0...
+21      11  3      uniform  43  [[0.5104666400468276, 0.24831609764484341, 0.7...
+22      12  2   normal_std  26  [[-1.606958648554557, -0.10339539517381979], [...
+23      12  3   normal_std  94  [[0.5679744588243308, -0.7641565033062317, 2.2...
+24      13  2      uniform  81  [[0.7167776685390507, 0.30593930617301857], [0...
+25      13  3      uniform  68  [[0.14931665040769027, 0.628399562858418, 0.43...
+26      14  2  normal_wide  46  [[2.2300592487614126, 3.7085108133592466], [0....
+27      14  3  normal_wide  84  [[2.4985245075437836, 2.403926642307751, -7.77...
+28      15  2  normal_wide  59  [[0.511722731380136, -1.3158436019665836], [1....
+29      15  3      uniform  50  [[0.1416257376588499, 0.032171823650812836, 0....
+                    INFO     Saving data to simulation_study_data (PickleDataset)...                                                                                                                                                                                              data_catalog.py:445
+                    INFO     Completed node: generate_simulation_study_data                                                                                                                                                                                                             runner.py:244
+ 
+
+
+The data is stored in: C.Data.SIMULATION_STUDY_DATA
+
+
+Please use this simulated data to create a node to create Table 2. 
+
+"""

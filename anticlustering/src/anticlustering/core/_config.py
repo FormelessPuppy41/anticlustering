@@ -15,6 +15,7 @@ class BaseConfig:
     """
     n_clusters: int
     random_state: Optional[int] = None
+    time_limit: Optional[int] = None  # seconds
 
 @dataclass(slots=True)
 class ILPConfig(BaseConfig):
@@ -76,6 +77,69 @@ class ExchangeConfig(BaseConfig):
     verbose         : bool                  = False
     time_limit      : Optional[int]         = None  # seconds
     k_neighbours    : int                   = 5
+
+
+@dataclass(slots=True)
+class MatchingConfig(BaseConfig):
+    """
+    Tunable parameters for :class:`MatchingAntiCluster`. Inherits from :class:`BaseConfig`.
+    Notes
+    -----
+    * This solver is only applicable for K=2 (binary clustering).
+    * ``time_limit`` is interpreted in *seconds* and limits the runtime of the algorithm.
+    """
+    n_clusters      : int                   = 2  # number of clusters (K)
+    metric          : str                   = "euclidean"
+    time_limit      : Optional[int]         = None  # seconds
+    verbose         : bool                  = False
+    random_state    : Optional[int]         = None  # for reproducibility
+    max_n           : Optional[int]         = None  # max number of items (N) to solve
+    max_sweeps      : int                   = 10  # max number of sweeps for the heuristic
+    patience        : int                   = 100  # number of sweeps without improvement before stopping
+
+
+@dataclass(slots=True)
+class KMeansConfig(BaseConfig):
+    """
+    Tunable parameters for :class:`KMeansAntiCluster`. Inherits from :class:`BaseConfig`.
+
+    Notes
+    -----
+    * ``n_init`` is the number of times the k-means algorithm will be run with different centroid seeds.
+    * ``max_iter`` is the maximum number of iterations of the k-means algorithm for a single run.
+    * ``tol`` is the relative tolerance with regards to inertia to declare convergence.
+    * ``random_state`` is used for reproducibility of the results.
+    """
+    n_clusters      : int                   = 2  # number of clusters (K)
+    n_init          : int                   = 10
+    max_iter        : int                   = 300
+    tol             : float                 = 1e-4
+    verbose         : bool                  = False
+    random_state    : Optional[int]         = None  # for reproducibility
+    max_n           : Optional[int]         = None  # max number of items (N) to solve
+    time_limit      : Optional[int]         = None  # seconds
+    metric          : str                   = "euclidean"
+    max_sweeps      : int                   = 10  # max number of sweeps for the heuristic
+    patience        : int                   = 100  # number of sweeps without improvement before stopping
+
+@dataclass(slots=True)
+class RandomConfig(BaseConfig):
+    """
+    Tunable parameters for :class:`RandomAntiCluster`. Inherits from :class:`BaseConfig`.
+    Notes
+    -----
+    * This solver is a baseline that randomly assigns items to clusters.
+    * It does not use any dissimilarity matrix or features.
+    * ``random_state`` is used for reproducibility of the results.
+    """ 
+    n_clusters      : int                   = 2
+    random_state    : Optional[int]         = None
+    max_n           : Optional[int]         = None
+    time_limit      : Optional[int]         = None
+    verbose         : bool                  = False
+    metric          : str                   = "euclidean"
+    max_sweeps      : int                   = 10  # max number of sweeps for the heuristic
+    patience        : int                   = 100  # number of sweeps without improvement before stopping
 
 
 @dataclass(slots=True)

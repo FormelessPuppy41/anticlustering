@@ -98,7 +98,8 @@ class AntiCluster(ABC):
         if not isinstance(runtime, (int, float)):
             raise TypeError("runtime must be numeric")
         if runtime < 0:
-            raise ValueError("runtime must be non-negative")
+            self._runtime = np.nan
+            #raise ValueError("runtime must be non-negative")
         self._runtime = float(runtime)
 
     def _set_status(

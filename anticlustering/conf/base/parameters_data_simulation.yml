@@ -6,3 +6,26 @@ simulation:
              40, 50, 60, 70, 80, 90, 100]
   n_features: 2       # paper uses 2-dim features
   rng_seed: 42        # fixed seed for reproducibility
+
+
+
+
+simulation_study:
+  k_values: [2, 3]
+
+  n_runs: 50
+
+  n_range:
+    min: 10
+    max: 100
+
+  distributions:
+    uniform: {}
+    normal_std:
+      loc: 0
+      scale: 1
+    normal_wide:
+      loc: 0
+      scale: 2
+
+    

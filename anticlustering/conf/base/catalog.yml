@@ -5,6 +5,11 @@ all_simulated_data:
   filepath: data/03_primary/all_simulated_data.pkl
   versioned: true
 
+simulation_study_data:
+  type: pickle.PickleDataset
+  filepath: data/03_primary/simulation_study_data.pkl
+  versioned: true
+
 kaggle_data_1920:
   type: pandas.CSVDataset
   filepath: data/01_raw/kaggle_data_1920.csv
@@ -56,6 +61,13 @@ anticluster_metrics:
 report_data_table1_replication:
   type: pandas.CSVDataset
   filepath: data/08_reporting/replication_table1.csv
+  versioned: true
+  save_args:
+    index: true
+
+report_data_table2_simulation_study:
+  type: pandas.CSVDataset
+  filepath: data/08_reporting/simulation_study_table2.csv
   versioned: true
   save_args:
     index: true
