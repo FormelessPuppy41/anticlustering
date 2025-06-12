@@ -129,6 +129,7 @@ class AnticlusterManager:
         self._groups        : List[_GroupState] = [_GroupState() for _ in range(k)]
         self._index         : Dict[str, Tuple[int, np.ndarray, Tuple[str, ...]]] = {}
         self._dim           : int               = 0 # current common feature vector length
+        
 
     # ------------------------------------------------------------------ #
     #                           public facade                            #
@@ -154,12 +155,12 @@ class AnticlusterManager:
         • If ``scale=True`` the running ``StandardScaler`` is updated
           incrementally by passing the previous fitted instance back in.
         """
-        _LOG.info(
-            "Current size of anticlusters: %s. \nAdding %d new loans to anticlusters. \nCurrent Centroids: %s",
-            self.group_sizes(),
-            len(new_loans),
-            [g.centroid.tolist() if g.centroid is not None else None for g in self._groups],
-        )
+        # _LOG.info(
+        #     "AntiMan.add_loans: Current size of anticlusters: %s. \nAdding %d new loans to anticlusters. \nCurrent Centroids: %s",
+        #     self.group_sizes(),
+        #     len(new_loans),
+        #     [g.centroid.tolist() if g.centroid is not None else None for g in self._groups],
+        # )
 
         if not new_loans:
             return  # nothing to do
@@ -180,78 +181,56 @@ class AnticlusterManager:
 
         a, b = self.vectorizer.partial_update(new_loans)
         self._rescale_all_vectors(a, b)
-        _LOG.info(
-            "Updated anticlusters after adding %d loans: %s. With centroids: %s",
-            len(new_loans),
-            self.group_sizes(),
-            [g.centroid.tolist() if g.centroid is not None else None for g in self._groups],
-        )
-
-
-
-    def add_loan(self, loan: LoanRecord) -> int:
-        """
-        Assign a loan to an anticluster *incrementally*.
-
-        Parameters
-        ----------
-        loan : LoanRecord
-            The loan to be added.
-
-        Returns
-        -------
-        int : Index of the chosen group.
-        """
-        # Vectorise a single loan
-        vec = self.vectorizer.transform(loan)
-        self._ensure_dim(len(vec))
-        idx = self._assign_single(loan, vec)
-
-        a, b = self.vectorizer.partial_update([loan])
-        self._rescale_all_vectors(a, b)
-        return idx
-
-    def remove_loans(self, loan_ids: Iterable[str]) -> List[int]:
+        # _LOG.info(
+        #     "AntiMan.add_loans: Updated anticlusters after adding %d loans: %s. With centroids: %s",
+        #     len(new_loans),
+        #     self.group_sizes(),
+        #     [g.centroid.tolist() if g.centroid is not None else None for g in self._groups],
+        # )
+        
+    def remove_loans(self, old_loans: list[LoanRecord]) -> List[int]:
         """
         Remove a batch of loans by their IDs.  Returns the group indices they left.
 
         Parameters
         ----------
-        loan_ids : Iterable[str]
-            Unique identifiers of the loans to be removed.
+        old_loans : list[LoanRecord]
+            Loans to be removed from the anticlusters.  The loans must have
+            been previously added to the manager.
 
         Returns
         -------
         List[int]
             Indices of the groups from which the loans were removed (0 … K-1).
         """
+        if not old_loans:
+            _LOG.warning("AntiMan.remove_loans: No loans to remove; skipping.")
+            return []
+        
+        if not isinstance(old_loans, list):
+            raise TypeError("Expected a list of LoanRecord objects to remove.")
+        
+        loan_ids = [loan.loan_id for loan in old_loans]
+
         idxs = []
         for loan_id in loan_ids:
-            idxs.append(self.remove_loan(loan_id))
+            try:
+                idx, vec, cat_keys = self._index.pop(loan_id)
+            except KeyError as exc:  # pragma: no cover
+                _LOG.warning(
+                    "AntiMan.remove_loans: Loan %s not found in index; skipping removal.", loan_id
+                )
+                raise KeyError(f"Loan {loan_id} not found") from exc
+            self._groups[idx].remove(loan_id, vec, cat_keys)
+            idxs.append(idx)
+        _LOG.info(
+            "AntiMan.remove_loans: Removed %d loans from groups: %s. Current group sizes: %s",
+            len(loan_ids),
+            idxs,
+            self.group_sizes(),
+        )
         return idxs
     
-    def remove_loan(self, loan_id: str) -> int:
-        """
-        Remove a loan when it departs.  Returns the group index it left.
-
-        Parameters
-        ----------
-        loan_id : str
-            Unique identifier of the loan to be removed.
-
-        Returns
-        -------
-        idx  : int
-            Index of the group from which the loan was removed (0 … K-1).
-        """
-        try:
-            idx, vec, cat_keys = self._index.pop(loan_id)
-        except KeyError as exc:  # pragma: no cover
-            raise KeyError(f"Loan {loan_id} not found") from exc
-        self._groups[idx].remove(loan_id, vec, cat_keys)
-        return idx
-    
-
 
     # ------------------------------------------------------------------ #
     #                     internal assignment logic                      #
@@ -281,26 +260,30 @@ class AnticlusterManager:
         KeyError
             If the loan's categorical keys do not match the expected hard columns.
         """
-        cat_keys = tuple(getattr(loan, c) for c in self.hard_cols)
-        candidate_idxs = [
-            i for i in range(self.k) if self._group_accepts(i, cat_keys)
-        ] or range(self.k)
+        if vec.shape[0] != self._dim:
+            # reshape if vectorizer returns 1d
+            vec = vec.flatten()
+        cat_keys = tuple(int(getattr(loan, c)) for c in self.hard_cols)
 
-        best_idx, best_score = None, -math.inf
-        for i in candidate_idxs:
-            g = self._groups[i]
-            # distance to centroid (empty ⇒ huge distance)
-            dist = 1e6 if g.centroid is None else np.linalg.norm(vec - g.centroid)
-            size_penalty = g.size / max(1, self.avg_group_size())
-            score = dist / (1 + size_penalty)
-            if score > best_score:
-                best_idx, best_score = i, score
+        best_score = float('inf')
+        best_idx = 0
 
-        grp: _GroupState = self._groups[best_idx]
-        grp.add(loan.loan_id, vec, cat_keys)
+        for i, g in enumerate(self._groups):
+            dist = np.linalg.norm(vec - g.centroid) if g.centroid is not None else 1e6
+            penalty = 0.0
+            if self.hard_cols:
+                limit = self.avg_group_size() + self.size_tolerance
+                for val in cat_keys:
+                    if g.cat_counts.get(val, 0) + 1 > limit:
+                        penalty += (g.cat_counts[val] + 1 - limit)
+            score = dist + self.size_tolerance * penalty
+            if score < best_score:
+                best_score, best_idx = score, i
+
+        self._groups[best_idx].add(loan.loan_id, vec, cat_keys)
         self._index[loan.loan_id] = (best_idx, vec, cat_keys)
         return best_idx
-    
+        
     # ------------------------------------------------------------------ #
     #                 helpers to keep scales consistent                  #
     # ------------------------------------------------------------------ #
@@ -339,9 +322,10 @@ class AnticlusterManager:
         """
         n = self._n_numeric
         # Nothing to do if there are no numeric features
+        #TODO: This is an issue, bcs we do need to rescale but n is not representative.
         if n == 0:
             _LOG.warning(
-                "No numeric features to rescale; skipping rescale operation."
+                "AntiMan._rescale_all_vectores: No numeric features to rescale; skipping rescale operation."
                 " (a=%s, b=%s)", a, b
             )
             return
@@ -349,7 +333,7 @@ class AnticlusterManager:
         # Ensure the scaling factors match expected dimension
         if a.size != n or b.size != n:
             _LOG.error(
-                "Rescale factors have incorrect length: "
+                "AntiMan._rescale_all_vectores: Rescale factors have incorrect length: "
                 "expected %d, got a=%s, b=%s", n, a.size, b.size
             )
             raise ValueError(
@@ -361,7 +345,7 @@ class AnticlusterManager:
         for g in self._groups:
             if g.centroid is None or g.centroid.size == 0:
                 _LOG.warning(
-                    "Skipping rescale for empty group centroid: %s", g.centroid
+                    "AntiMan._rescale_all_vectores: Skipping rescale for empty group centroid: %s", g.centroid
                 )
                 continue
             # centroid is 1d array of length n_total
@@ -373,7 +357,7 @@ class AnticlusterManager:
         for loan_id, (idx, vec, cat_keys) in self._index.items():
             if vec.size == 0:
                 _LOG.warning(
-                    "Skipping rescale for empty vector of loan %s: %s",
+                    "AntiMan._rescale_all_vectores: Skipping rescale for empty vector of loan %s: %s",
                     loan_id, vec
                 )
                 continue
@@ -382,6 +366,10 @@ class AnticlusterManager:
                 a, b
             )[0]
             self._index[loan_id] = (idx, new_vec, cat_keys)
+        
+        _LOG.info(
+            "AntiMan._rescale_all_vectores: Rescaled all vectors and centroids with factors a=%s, b=%s",
+        )
 
     # ----------  monitoring / helpers  ---------- #
 
@@ -451,30 +439,51 @@ class AnticlusterManager:
             Number of swaps performed to rebalance the groups.
             If no swaps were needed or possible, returns 0.
         """
-        #TODO: Isn't it better to, instead of taking an arbitrary member from `big`,
-        #      take the one that is furthest from the centroid? This would help
-        #      to maintain the heterogeneity of the groups.
-        swaps = 0
-        for _ in range(max_swaps):
-            big, small = self._largest_and_smallest_groups()
-            if big is None or small is None:
+        old_centroid = self.group_centroids()
+
+        moved = 0
+        while True:
+            sizes = self.group_sizes()
+            largest, smallest = int(np.argmax(sizes)), int(np.argmin(sizes))
+            diff = sizes[largest] - sizes[smallest]
+            if diff <= self.size_tolerance:
                 break
-            if self._groups[big].size - self._groups[small].size <= self.size_tolerance:
-                break  # already within tolerance
 
-            # take an arbitrary member from `big`
-            loan_id = next(iter(self._groups[big].members))
-            # re-evaluate `loan_id` against `small`
-            _, vec, cat_keys = self._index[loan_id]
-            if not self._group_accepts(small, cat_keys):
-                break  # cannot move – would violate hard constraint
+            best_loan, best_penalty = None, float('inf')
+            for loan_id in list(self._groups[largest].members):
+                _, vec, cat_keys = self._index[loan_id]
+                penalty = 0.0
+                limit = self.avg_group_size() + self.size_tolerance
+                for val in cat_keys:
+                    over = self._groups[smallest].cat_counts.get(val, 0) + 1 - limit
+                    if over > 0:
+                        penalty += over
+                if penalty < best_penalty:
+                    best_penalty, best_loan = penalty, loan_id
+                if penalty == 0:
+                    break
 
-            # perform move
-            self._groups[big].remove(loan_id, vec, cat_keys)
-            self._groups[small].add(loan_id, vec, cat_keys)
-            self._index[loan_id] = (small, vec, cat_keys)
-            swaps += 1
-        return swaps
+            if best_loan is None:
+                _LOG.info("AntiMan.Rebalance: no move possible")
+                break
+
+            _, vec, cat_keys = self._index.pop(best_loan)
+            self._groups[largest].remove(best_loan, vec, cat_keys)
+            self._groups[smallest].add(best_loan, vec, cat_keys)
+            self._index[best_loan] = (smallest, vec, cat_keys)
+            moved += 1
+
+        _LOG.info("AntiMan.Rebalance completed: %d moved", moved)
+        new_centroid = self.group_centroids()
+        if old_centroid != new_centroid:
+            _LOG.info(
+                "AntiMan.Rebalance: centroids changed from %s to %s",
+                old_centroid, new_centroid
+            )
+        else:
+            _LOG.info("AntiMan.rebalance: centroids unchanged after rebalancing.")
+
+        return moved
 
     # ------------------------------------------------------------------ #
     #                       internal helper methods                      #
@@ -521,8 +530,17 @@ class AnticlusterManager:
         if not self.hard_cols:
             return True
         counts = self._groups[idx].cat_counts
+        limit = self.avg_group_size() + self.size_tolerance
+        for val in cat_keys:
+            c = counts.get(int(val), 0)  # convert str to int if needed
+            if c + 1 > limit:
+                _LOG.debug(
+                    "AntiMan._group_accepts: Group %d cannot accept loan with keys %s; would exceed limit %d.",
+                    idx, cat_keys, limit
+                )
+                return False
         # A cat_key is a tuple aligned with self.hard_cols
-        return all(counts[k] + 1 <= self.avg_group_size() + self.size_tolerance for k in cat_keys)
+        return True
 
     def _largest_and_smallest_groups(self) -> Tuple[int | None, int | None]:
         sizes = self.group_sizes()

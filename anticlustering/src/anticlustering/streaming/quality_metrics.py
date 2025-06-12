@@ -117,9 +117,7 @@ def within_group_variance(
     """
     vectorizer = manager.vectorizer
     all_var: list[np.ndarray] = []
-    _LOG.info(
-        "within_group_variance: computing variance for %d groups",
-    )
+
     for grp in manager._groups:
         if grp.size == 0:
             continue
@@ -127,7 +125,22 @@ def within_group_variance(
         member_vecs = vectorizer.transform([loans_by_id[lid] for lid in grp.members])
         all_var.append(np.var(member_vecs, axis=0).mean())
 
-    return float(np.mean(all_var)) if all_var else 0.0
+    
+    var_within = float(np.mean(all_var)) if all_var else 0.0
+    if var_within is None or math.isnan(var_within) or var_within <= 0.0:
+        if var_within == 0.0:
+            _LOG.warning(
+                "within_group_variance: computed variance is 0.0, which indicates no variation within groups."
+            )
+        else: 
+            _LOG.warning(
+                f"within_group_variance: computed variance is {var_within}, which is suspiciously low or NaN. With all_var: {all_var}"
+            )
+        return 0.0
+    _LOG.info(
+        f"within_group_variance: computed within-group variance: {var_within}. All group variances: {all_var}"
+    )
+    return var_within
 
 
 # --------------------------------------------------------------------------- #

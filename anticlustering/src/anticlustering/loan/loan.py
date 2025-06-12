@@ -169,13 +169,13 @@ class LoanRecord:
         Unique identifier for the loan.
     loan_amnt: Decimal
         Original loan amount in USD.
-    term_months: int
+    term: int
         Scheduled number of monthly payments (36 or 60 for Lending Club).
-    issue_date: date
+    issue_d: date
         Date when the loan was issued (in format "Jan-2015").
     int_rate: Decimal   
         Annual nominal interest rate in *percent* (e.g. 13.56).
-    last_pymnt_date: Optional[date]
+    last_pymnt_d: Optional[date]
         Date of the last payment made (in format "Jan-2015").
     loan_status: LoanStatus
         Final status of the loan, represented as a :class:`LoanStatus` enum.
@@ -207,13 +207,13 @@ class LoanRecord:
     def __post_init__(self) -> None:
         object.__setattr__(
             self, 
-            "issue_date",
+            "issue_d",
              _parse_date(self.issue_d) or _raise("issue_d missing")
             )
         if self.last_pymnt_d:
             object.__setattr__(
                 self, 
-                "last_pymnt_date", 
+                "last_pymnt_d", 
                 _parse_date(self.last_pymnt_d)
             )
         if self.int_rate > 1.0:
@@ -267,12 +267,12 @@ class LoanRecord:
         return cls(
             loan_id         =   str(                row["id"]),
             loan_amnt       =   float(              row["loan_amnt"]),
-            term_months     =   int(                row["term"]),
-            issue_date      =   _parse_date(        row["issue_d"]),
+            term            =   int(                row["term"]),
+            issue_d         =   _parse_date(        row["issue_d"]),
             int_rate        =   float(              row["int_rate"]),
             grade           =   str(                row["grade"]),
             sub_grade       =   str(                row["sub_grade"]),
-            last_pymnt_date =   _parse_date(        row["last_pymnt_d"]),
+            last_pymnt_d    =   _parse_date(        row["last_pymnt_d"]),
             loan_status     =   LoanStatus.from_raw(row["loan_status"]),
             total_rec_prncp =   float(              row["total_rec_prncp"]),
             recoveries      =   float(              row["recoveries"]),
@@ -285,12 +285,12 @@ class LoanRecord:
         return cls(
             loan_id         =   str(                row["id"]),
             loan_amnt       =   float(              row["loan_amnt"]),
-            term_months     =   int(                row["term"]),
-            issue_date      =   _parse_date(        row["issue_d"]),
+            term            =   int(                row["term"]),
+            issue_d         =   _parse_date(        row["issue_d"]),
             int_rate        =   float(              row["int_rate"]),
             grade           =   str(                row["grade"]),
             sub_grade       =   str(                row["sub_grade"]),
-            last_pymnt_date =   _parse_date(        row["last_pymnt_d"]),
+            last_pymnt_d    =   _parse_date(        row["last_pymnt_d"]),
             loan_status     =   LoanStatus.from_raw(row["loan_status"]),
             total_rec_prncp =   float(              row["total_rec_prncp"]),
             recoveries      =   float(              row["recoveries"]),

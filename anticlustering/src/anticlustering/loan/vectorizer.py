@@ -266,10 +266,6 @@ class LoanVectorizer:
         
         Raises if a/b length doesn’t match the number of numeric dimensions.
         """
-        _LOG.info(
-            "rescale_features: Rescaling %d numeric features with factors a=%s, b=%s",
-            len(self.num_to_scale), a, b
-        )
         n_num = len(self.num_to_scale)
         # nothing to do if no scaler or no numeric features
         if self._num_scaler is None or n_num == 0:
@@ -288,16 +284,12 @@ class LoanVectorizer:
         X_new = X.copy()
         X_new[:, :n_num] = X[:, :n_num] * a + b
 
-        _LOG.info(
-            "rescale_features: Rescaled %d numeric features with factors a=%s, b=%s",
-            n_num, a, b
-        )
         return X_new
     
     @property
     def n_numeric(self) -> int:
-        """Number of numeric features."""
-        return len(self.numeric_attrs)
+        """Number of numeric features to scale."""
+        return len(self.num_to_scale)
     
     # ------ date parsing helper ----------------------------------------------
     @staticmethod

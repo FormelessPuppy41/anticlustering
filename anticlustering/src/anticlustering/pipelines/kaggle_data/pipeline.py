@@ -39,7 +39,7 @@ def create_pipeline(**kwargs) -> Pipeline:
         node(
             func=parse_kaggle_data,
             inputs=[
-                C.Data.KAGGLE_TEST,
+                C.Data.KAGGLE_1418,
                 P.OnlineAnticluster.KAGGLE_COLUMNS,
                 P.OnlineAnticluster.REDUCE_N,
                 P.RNG_NUMBER

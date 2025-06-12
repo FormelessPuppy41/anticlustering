@@ -58,7 +58,7 @@ def parse_kaggle_data(
     if reduce_n:
         prev_len = len(df_raw)
         df_raw = _reduce_sample(df_raw, n=int(reduce_n), rng_number=rng_number)
-        _LOG.info("Reduced Kaggle data to %d rows from %s rows (random sampling)", len(df_raw), prev_len)
+        _LOG.info("parse_kaggle_data: Reduced Kaggle data to %d rows from %s rows (random sampling)", len(df_raw), prev_len)
     
     keep_cols        = kaggle_columns.get("keep_columns")            or []
     percent_cols     = kaggle_columns.get("percentage_columns")      or []
@@ -70,7 +70,7 @@ def parse_kaggle_data(
     categorical_cols = kaggle_columns.get("categorical_columns")     or []
     passthrough_cols = kaggle_columns.get("passthrough_columns")     or []
 
-    return parse_kaggle_dataframe(
+    df= parse_kaggle_dataframe(
         df_raw,
         keep_cols       = keep_cols,
         percentage_cols = percent_cols,
@@ -82,7 +82,7 @@ def parse_kaggle_data(
         passthrough_cols= passthrough_cols,
         fill_numeric_nan= 0.0,
     )
-    print(df)
+    #print(df)
     return df
 
 
@@ -97,7 +97,7 @@ def kaggle_df_to_loan_records(df: pd.DataFrame) -> List[LoanRecord]:
     • Parallel mapping via joblib; falls back gracefully on bad rows.
     """
     if df.empty:
-        _LOG.warning("Received empty DataFrame – returning empty list.")
+        _LOG.warning("df_to_loan_records: Received empty DataFrame – returning empty list.")
         return []
 
     # ── helper that swallows bad rows but keeps exception for logging ──
@@ -123,9 +123,9 @@ def kaggle_df_to_loan_records(df: pd.DataFrame) -> List[LoanRecord]:
             errors.append(item)
 
     if errors:
-        _LOG.warning("Encountered %d errors while parsing rows: %s", len(errors), errors[:5])
+        _LOG.warning("df_to_loan_records: Encountered %d errors while parsing rows: %s", len(errors), errors[:5])
 
-    _LOG.info("Converted %d rows → LoanRecord objects.", len(records))
+    _LOG.info("df_to_loan_records: Converted %d rows → LoanRecord objects.", len(records))
     return records
 
 
@@ -159,7 +159,7 @@ def loan_records_to_long_df(
     )
 
     _LOG.info(
-        "Generating synthetic histories for %d loans … (as_of=%s)",
+        "loan_records_to_long: Generating synthetic histories for %d loans … (as_of=%s)",
         len(loans),
         as_of,
     )
@@ -168,8 +168,8 @@ def loan_records_to_long_df(
         as_of                       =as_of, 
         assume_regular_prepayment   =assume_regular_prepayment
     )
-    _LOG.info("→ Produced %d loan-month rows", len(df))
-    _LOG.info("Sample of the generated DataFrame:\n%s", df.head(30))
+    _LOG.info("loan_records_to_long: Produced %d loan-month rows", len(df))
+    _LOG.info("loan_records_to_long: Sample of the generated DataFrame:\n%s", df.head(30))
     return df
 
 

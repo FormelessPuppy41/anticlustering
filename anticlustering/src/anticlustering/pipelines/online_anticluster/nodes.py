@@ -90,12 +90,12 @@ def simulate_stream(
     )
 
     _LOG.info(
-        "Simulating stream from %s to %s over %d loans",
+        "simulate_stream: Simulating stream from %s to %s over %d loans",
         start or "min(issue_d)",
         end or "final departure",
         len(loans),
     )
-    _LOG.info("Example loans: %s", loans[0] if loans else "No loans provided")
+    _LOG.info("simulate_stream: Example loans: %s", loans[0] if loans else "No loans provided")
 
     engine = StreamEngine(loans, start_date=start, end_date=end)
 
@@ -110,8 +110,8 @@ def simulate_stream(
         )
 
     df_events = pd.DataFrame(records)
-    _LOG.info("Generated %d monthly event rows", len(df_events))
-    _LOG.info("Sample events:\n%s", df_events.head(48))
+    _LOG.info("simulate_stream: Generated %d monthly event rows", len(df_events))
+    _LOG.info("simulate_stream: Sample events:\n%s", df_events.head(48))
     return df_events
 
 
@@ -148,6 +148,12 @@ def update_anticlusters(
     assignments_rows: List[dict] = []
     metrics_rows: List[dict] = []
 
+    # Shouldn't we extract all loans that depart in the events_df but have never arrived?
+    # We then use the exchange heuristic to assign them to group and use this as our initial allocation.
+    # The reason for this, is that we now have a set of loans that are not assigned to any group, 
+    # but they do somehow depart bcs they expire.
+
+
     # ---- main loop ------------------------------------------------------ #
     for row_idx, row in events_df.sort_values("date").iterrows():
         date = LoanRecord._parse_date(row["date"])
@@ -164,7 +170,7 @@ def update_anticlusters(
         # ---------- use the normalised variables; DO NOT touch row[...] again ---
         arrivals   = [loan_map[lid] for lid in arrival_ids]
         departures = [loan_map[lid] for lid in departure_ids]
-        departures = departure_ids
+        #departures = departure_ids
 
         # ----- arrivals ----- #
         # Process arrivals all at once
@@ -176,14 +182,40 @@ def update_anticlusters(
         if departures:
             mgr.remove_loans(departures)
         
-        # ----- optional rebalance ----- #
+        # ----- rebalance yearly ----- #TODO: Can probably be removed bcs we rebalance if threshold is exceeded.
         if rebalance_frequency > 0 and (row_idx % rebalance_frequency == 0):
-            #TODO: This will never happen bcs probabily of exactly 0 is very small. Fix this. 
-            # This is wrong, it is done every year. So, it is done correctly.
+            swaps = mgr.rebalance()
             _LOG.info(
-                "Rebalancing at %s (row %d)", date, row_idx
+                "Rebalancing at %s (row %d). Number of swaps perfomed: %d", date, row_idx, swaps
             )
-            mgr.rebalance()
+
+        # rebalance if the groupsizes differ more than the tolerance
+        min_group_size = min(mgr.group_sizes())
+        max_group_size = max(mgr.group_sizes())
+        _LOG.info(
+            "update_anticlusters: Group sizes at %s (row %d): min: %d, max: %d",
+            date,
+            row_idx,
+            min_group_size,
+            max_group_size,
+        )
+        if max_group_size - min_group_size > size_tolerance:
+            initial_sizes = mgr.group_sizes()
+            swaps = mgr.rebalance()
+            _LOG.info(
+                "Rebalancing at %s (row %d) due to imbalance of groups (min: %d, max: %d). Number of swaps perfomed: %d",
+                date,
+                row_idx,
+                min_group_size,
+                max_group_size,
+                swaps,
+            )
+            _LOG.info(
+                "update_anticlusters: Rebalanced - initial group sizes: %s. Final group sizes: %s",
+                initial_sizes,
+                mgr.group_sizes()
+            )
+            
 
         # ----- record assignments (long) ----- #
         for g_idx, member_ids in mgr.snapshot().items():

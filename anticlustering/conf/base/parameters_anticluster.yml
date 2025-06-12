@@ -4,7 +4,7 @@
 rng_number: 42
 
 anticluster:
-  store_models: true          # false -> skip storing all_models.pkl
+  store_models: true          # false -> skip storing all_models.pkl -> cannot make reports/visuals
   k: 2
   
   solver_limits:
@@ -80,10 +80,10 @@ anticluster:
 online:
   as_of_str               :   # MUST EQUAL stream_end in online solver or be empty!
   regular_repayment       : true  # bool: true -> use regular repayment
-  reduce_n                :   # int: reduce n to this number of rows
+  reduce_n                : 1000  # int: reduce n to this number of rows
   scale                   : false
 
-  stream_start_date       : "2017-01-01" # str, date in format YYYY-MM-DD. Maybe None
+  stream_start_date       : "2014-01-01" # str, date in format YYYY-MM-DD. Maybe None
   stream_end_date         : "2020-12-01" # str, date in format YYYY-MM-DD. Maybe None
   
   k_groups                : 2 # int: number of groups to form
