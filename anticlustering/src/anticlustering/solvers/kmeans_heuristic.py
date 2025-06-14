@@ -1,85 +1,100 @@
 import numpy as np
 from typing import Tuple
-from sklearn.cluster import KMeans
 from ..core._config import KMeansConfig, Status
-from ..metrics.dissimilarity_matrix import get_dissimilarity_matrix, within_group_distance
+from ..metrics.dissimilarity_matrix import sum_squared_to_centroids
 
 
 class KMeansHeuristic:
     """
-    Simple k‐means “baseline” for anticlustering (ignores equal‐size constraint).
+    K-Means anticlustering heuristic with strict equal‐size groups,
+    random restarts, greedy assignment, and local swap optimization.
+
+    Based on Papenberg & Klau’s “K-Means Clustering” criterion: we
+    maximize the sum of squared Euclidean distances of points to
+    their cluster centroids, subject to |c_j| = N/K for all clusters.
     """
 
-    def __init__(self, D: np.ndarray, K: int, config: KMeansConfig):
-        self.cfg = config
-        self.K = K
-        self.D = D.copy() if D is not None else None
-
-    def solve(self, X: np.ndarray = None, *, D: np.ndarray) -> Tuple[np.ndarray, float, Status]:
+    def __init__(self, K: int, config: KMeansConfig):
         """
-        Simple k‐means heuristic for anticlustering.
+        Initialize the anticlustering solver.
+
+        Parameters
+        ----------
+        K : int
+            Number of clusters (must divide N).
+        config : KMeansConfig
+            Configuration with attributes:
+              - random_state: int, seed for reproducibility
+              - n_restarts: int, number of random initializations
+        """
+        self.K = K
+        self.cfg = config
+
+    def solve(self, X: np.ndarray) -> Tuple[np.ndarray, float, Status]:
+        """
+        Partition X into K equally‐sized clusters that maximize
+        within‐cluster variance (anticlustering).
 
         Parameters
         ----------
         X : np.ndarray, shape (N, D)
-            Data points (not used in this heuristic).
-        D : np.ndarray, shape (N, N)
-            Dissimilarity matrix (N×N), where N is the number of data points.
-        If D is None, it will be computed from X.
-        
+            Feature matrix.
+
         Returns
         -------
         labels : np.ndarray, shape (N,)
-        score  : float
-            Sum of within‐cluster dissimilarities.
+            Cluster assignments in 0,...,K-1.
+        score : float
+            Sum of squared distances to centroids (to maximize).
         status : Status
-            Always Status.heuristic here.
+            Always Status.heuristic.
 
         Raises
         ------
         ValueError
-            If D is not provided and X is None.
+            If X is None or N not divisible by K.
         """
-        # 1) obtain or compute full distance matrix
-        if self.D is None:
-            if X is None:
-                raise ValueError("Need either X or precomputed D")
-            self.D = get_dissimilarity_matrix(X)
-        D = self.D
-        N = D.shape[0]
+        if X is None:
+            raise ValueError("Data matrix X must be provided")
+        N = X.shape[0]
         if N % self.K != 0:
             raise ValueError(f"N={N} not divisible by K={self.K}")
 
-        # 2) random equal-size start
-        size = N // self.K
-        labels = np.repeat(np.arange(self.K), size)
+        best_labels = None
+        best_score = -np.inf
+
+        # Multiple random restarts to avoid poor local optima
+        for _ in range(self.cfg.n_restarts):
+            labels, score = self._single_run(X)
+            if score > best_score:
+                best_labels, best_score = labels, score
+
+        return best_labels, float(best_score), Status.heuristic
+
+    def _single_run(self, X: np.ndarray) -> Tuple[np.ndarray, float]:
+        """
+        One run of the heuristic: random init, greedy assignment,
+        then local pair-swap improvements.
+        """
         rng = np.random.default_rng(self.cfg.random_state)
+        N = X.shape[0]
+        size = N // self.K
+
+        # 1) Random equal‐size initialization
+        labels = np.repeat(np.arange(self.K), size)
         rng.shuffle(labels)
 
-        best_score = within_group_distance(D, labels)
-        improved = True
-        while improved:
-            improved = False
-
-            # 3) compute centroids in feature space
-            if X is None:
-                raise ValueError("KMeansAntiCluster requires the original X")
-            centroids = np.vstack([
-                X[labels == k].mean(axis=0) for k in range(self.K)
-            ])  # shape (K, n_features)
-
-            # 4) build list of all (i,k,d^2(i,mu_k)) and sort descending
-            #    we use D squared to approximate the k-means objective
-            #    but final scoring uses D itself.
-            d2 = np.square(
-                np.linalg.norm(X[:, None, :] - centroids[None, :, :], axis=2)
-            )  # shape (N, K)
+        # 2) Greedy centroid‐based reassignments until no gain
+        while True:
+            centroids = np.vstack([X[labels == k].mean(axis=0)
+                                   for k in range(self.K)])  # (K, D)
+            # squared distances from each point to each centroid
+            d2 = np.linalg.norm(X[:, None, :] - centroids[None, :, :], axis=2) ** 2
+            # flatten and sort descending: largest d2 first
             idxs, ks = np.unravel_index(
-                np.argsort(d2.ravel())[::-1],
-                (N, self.K)
+                np.argsort(d2.ravel())[::-1], (N, self.K)
             )
-
-            # 5) greedy reassign under equal-size constraint
+            # fill new_labels greedily under equal‐size constraint
             new_labels = -np.ones(N, dtype=int)
             counts = {k: 0 for k in range(self.K)}
             for i, k in zip(idxs, ks):
@@ -89,10 +104,33 @@ class KMeansHeuristic:
                 if all(c == size for c in counts.values()):
                     break
 
-            # 6) measure true distance‐based score
-            new_score = within_group_distance(D, new_labels)
-            if new_score > best_score + 1e-8:
-                labels, best_score = new_labels, new_score
-                improved = True
+            old_score = sum_squared_to_centroids(X, labels)
+            new_score = sum_squared_to_centroids(X, new_labels)
+            if new_score > old_score + 1e-8:
+                labels = new_labels
+            else:
+                break
 
-        return labels, float(best_score), Status.heuristic
+        # 3) Local pair‐swap optimization to further increase score
+        current_score = sum_squared_to_centroids(X, labels)
+        while True:
+            improved = False
+            for i in range(N - 1):
+                for j in range(i + 1, N):
+                    if labels[i] == labels[j]:
+                        continue
+                    # try swapping i<->j
+                    swapped = labels.copy()
+                    swapped[i], swapped[j] = swapped[j], swapped[i]
+                    score_swapped = sum_squared_to_centroids(X, swapped)
+                    if score_swapped > current_score + 1e-8:
+                        labels = swapped
+                        current_score = score_swapped
+                        improved = True
+                        break
+                if improved:
+                    break
+            if not improved:
+                break
+
+        return labels, current_score

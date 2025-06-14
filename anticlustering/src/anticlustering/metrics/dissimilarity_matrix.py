@@ -80,3 +80,38 @@ def within_group_distance(
         total += sub.sum() * 0.5   # divide by 2 to avoid double-count
 
     return float(total)
+
+
+
+def sum_squared_to_centroids(X, labels) -> float:
+    """
+    Total sum of squared distances to the centroids of each group.
+    This is a measure of within-group variance.
+    
+    Parameters
+    ----------
+    X : np.ndarray, shape (N, D)
+        Data points.
+    labels : np.ndarray, shape (N,)
+        Group labels for each data point.
+
+    Returns
+    -------
+    float
+        Total sum of squared distances to the centroids of each group.
+
+    Notes
+    -----
+    This function computes the sum of squared distances of each point in a group
+    to the mean (centroid) of that group. It is a common measure of variance
+    within groups, often used in clustering contexts.
+    The function iterates over each unique label, computes the mean of the points
+    in that group, and then sums the squared distances of those points to the mean.
+    This is useful for evaluating the compactness of clusters in clustering algorithms.
+    """
+    total = 0.0
+    for j in np.unique(labels):
+        idx = np.where(labels == j)[0]
+        mu = X[idx].mean(axis=0)
+        total += ((X[idx] - mu)**2).sum()
+    return total

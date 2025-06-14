@@ -4,7 +4,7 @@ from typing import Optional
 from .base import AntiCluster
 from ._registry import register_solver
 from ._config import RandomConfig
-from ..metrics.dissimilarity_matrix import get_dissimilarity_matrix
+from ..metrics.dissimilarity_matrix import get_dissimilarity_matrix, within_group_distance
 from ..core._config import Status
 import logging
 
@@ -41,21 +41,17 @@ class RandomAntiCluster(AntiCluster):
         if N % K != 0:
             raise ValueError(f"Cannot split N={N} into {K} perfectly equal groups")
 
+        rng = np.random.default_rng(self.cfg.random_state)
+
         # 2) assign evenly and shuffle
         start = time.perf_counter()
-        rng = np.random.default_rng(self.cfg.random_state)
         labels = np.repeat(np.arange(K), N // K)
         rng.shuffle(labels)
-
-        # 3) compute within‐cluster score
-        score = 0.0
-        for k in range(K):
-            members = np.where(labels == k)[0]
-            if members.size > 1:
-                sub = D[np.ix_(members, members)]
-                score += sub.sum() / 2.0
         runtime = time.perf_counter() - start
 
+        # 3) compute within‐cluster score
+        score = within_group_distance(D=D, labels=labels)
+        
         # 4) store and return
         self._set_labels(labels)
         self._set_score(float(score))

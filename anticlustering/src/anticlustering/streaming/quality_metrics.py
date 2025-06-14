@@ -118,12 +118,23 @@ def within_group_variance(
     vectorizer = manager.vectorizer
     all_var: list[np.ndarray] = []
 
+    idx = 0
     for grp in manager._groups:
+        _LOG.info(f"Processing group {idx} with {grp.size} members")
         if grp.size == 0:
+            idx += 1
             continue
 
         member_vecs = vectorizer.transform([loans_by_id[lid] for lid in grp.members])
-        all_var.append(np.var(member_vecs, axis=0).mean())
+    
+        var = np.var(member_vecs, axis=0)
+        all_var.append(var.mean())
+        idx += 1
+
+        _LOG.info(
+            f"Group {idx} variance: {var.mean()} (size: {grp.size}, members: {grp.members}). Mean variance: {var.mean()} or {np.mean(all_var)}. member_vecs: {member_vecs}"
+        )
+
 
     
     var_within = float(np.mean(all_var)) if all_var else 0.0

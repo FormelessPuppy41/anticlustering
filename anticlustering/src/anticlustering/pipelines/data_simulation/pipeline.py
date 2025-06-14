@@ -7,16 +7,16 @@ from .nodes import simulate_matrices, generate_simulation_study_data
 def create_pipeline(**kwargs):
     return Pipeline(
         [
-            node(
-                func=simulate_matrices,
-                inputs=[
-                    P.DataSimulation.N_VALUES,
-                    P.DataSimulation.NUM_FEATURES,
-                    P.DataSimulation.RNG_SEED,
-                ],
-                outputs=C.Data.SIM_DATA,          # e.g. "all_simulated_data"
-                name="simulate_all_matrices",
-            ),
+            # node(
+            #     func=simulate_matrices,
+            #     inputs=[
+            #         P.DataSimulation.N_VALUES,
+            #         P.DataSimulation.NUM_FEATURES,
+            #         P.DataSimulation.RNG_SEED,
+            #     ],
+            #     outputs=C.Data.SIM_DATA,          # e.g. "all_simulated_data"
+            #     name="simulate_all_matrices",
+            # ),
             node(
                 func=generate_simulation_study_data,
                 inputs=[

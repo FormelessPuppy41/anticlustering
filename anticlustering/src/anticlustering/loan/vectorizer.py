@@ -197,6 +197,12 @@ class LoanVectorizer:
             self._num_scaler.scale_.copy(),
         )
 
+        # helper to spot NaNs in a 2D block
+        def check_nan_in_cols(block: np.ndarray) -> list[int]:
+            # returns list of column-indices that contain any NaN
+            return [i for i in range(block.shape[1]) if np.isnan(block[:, i]).any()]
+
+
         # 2) Build the *full* matrix exactly as in fit/transform
         blocks: List[np.ndarray] = []
 
@@ -220,10 +226,23 @@ class LoanVectorizer:
         # dates → timestamp
         if self.datetime_attrs:
             Xd = _extract_matrix(loans, self.datetime_attrs)
+            bad = check_nan_in_cols(Xd)
+            if bad:
+                _LOG.warning(
+                    "partial_update: NaNs found in datetime columns %r; parsing may yield NaNs",
+                    [self.datetime_attrs[i] for i in bad]
+                )
             blocks.append(self._parse_dates_to_numeric(Xd))
 
         # ordinals (already numeric)
         if self.ordinal_attrs:
+            Xd = _extract_matrix(loans, list(self.ordinal_attrs.keys()))
+            bad = check_nan_in_cols(Xo)
+            if bad:
+                _LOG.warning(
+                    "partial_update: NaNs found in ordinal columns %r",
+                    [list(self.ordinal_attrs.keys())[i] for i in bad]
+                )
             blocks.append(_extract_matrix(loans, list(self.ordinal_attrs.keys())))
 
         # stack them
@@ -232,6 +251,14 @@ class LoanVectorizer:
             if blocks and any(b.size for b in blocks)
             else np.empty((len(loans), 0))
         )
+
+        # check whether X_full contains any nan values. Also, clearly indicate which columns contain nan values.
+        if np.isnan(X_full).any():
+            raise ValueError(
+                "partial_update: Input matrix X_full contains NaN values. "
+                "This is not allowed for partial_fit. Please check your data."
+                f" NaN columns: {[i for i in range(X_full.shape[1]) if np.isnan(X_full[:, i]).any()]}"
+            )
 
         # 3) Partial-fit on that full block
         self._num_scaler.partial_fit(X_full)
@@ -244,12 +271,15 @@ class LoanVectorizer:
             old_mean, old_scale, new_mean, new_scale
         )
         # 4) Compute migration factors
-        a = old_scale / new_scale
-        b = (old_mean - new_mean) / new_scale
-        _LOG.info(
-            "partial update: Computed rescale factors: a=%s, b=%s",
-            a.tolist(), b.tolist()
-        )
+        a = np.ones_like(old_scale)
+        b = np.zeros_like(old_mean)
+
+        # only update where new_scale nonzero
+        mask = new_scale != 0
+        a[mask] = old_scale[mask] / new_scale[mask]
+        b[mask] = (old_mean[mask] - new_mean[mask]) / new_scale[mask]
+
+        _LOG.info("partial_update: safe rescale factors a=%s, b=%s", a.tolist(), b.tolist())
         return a, b
     
     def rescale_features(
@@ -281,6 +311,9 @@ class LoanVectorizer:
                 f"got lengths {a.shape[0]}, {b.shape[0]}"
             )
         # perform affine update on the first n_num columns
+        a = np.nan_to_num(a, nan=1.0, posinf=1.0, neginf=1.0)
+        b = np.nan_to_num(b, nan=0.0, posinf=0.0, neginf=0.0)
+
         X_new = X.copy()
         X_new[:, :n_num] = X[:, :n_num] * a + b
 

@@ -213,7 +213,7 @@ class ModelPreClusterILP(_ModelEdgeILPBase):
         super().__init__(
             D, K, config,
             sense=GRB.MINIMIZE,
-            target_degree=K - 1,
+            target_degree= K - 1,
             forbidden_pairs=None,
         )
 

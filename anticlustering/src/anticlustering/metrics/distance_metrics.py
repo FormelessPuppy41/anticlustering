@@ -10,7 +10,7 @@ def compute_euclidean_distances(data: np.ndarray) -> np.ndarray:
 
     Caches result internally on first call for each solver.
     """
-    return cdist(data, data, metric='euclidean')
+    return cdist(data, data, metric='euclidean') ** 2
 
 def compute_manhattan_distances(data: np.ndarray) -> np.ndarray:
     """

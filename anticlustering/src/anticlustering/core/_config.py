@@ -121,6 +121,7 @@ class KMeansConfig(BaseConfig):
     metric          : str                   = "euclidean"
     max_sweeps      : int                   = 10  # max number of sweeps for the heuristic
     patience        : int                   = 100  # number of sweeps without improvement before stopping
+    n_restarts      : int                   = 5  # number of random initializations for k-means
 
 @dataclass(slots=True)
 class RandomConfig(BaseConfig):
