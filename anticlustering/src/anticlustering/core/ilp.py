@@ -228,7 +228,8 @@ class PreClusterILPAntiCluster(ILPAntiCluster):
             _LOG.error(
                 "Preclustering failed to find an optimal solution: %s", preclust.status_
             )
-            raise RuntimeError("Preclustering failed; cannot proceed with ILP.")
+            if preclust.status_ != 'timeout':
+                raise RuntimeError("Preclustering failed; cannot proceed with ILP.")
 
         forbidden_pairs = preclust.extract_group_pairs()
         anticlust = ModelAntiClusterILP(

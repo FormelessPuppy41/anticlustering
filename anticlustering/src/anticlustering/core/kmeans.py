@@ -41,7 +41,7 @@ class KMeansAntiCluster(AntiCluster):
 
         _LOG.info("Starting KMeans anticlustering: N=%d, K=%d", N, self.config.n_clusters)
         t0 = time.perf_counter()
-        labels, score, status = self._model.solve(X)
+        labels, score, status = self._model.solve(X, D=D)
         runtime = time.perf_counter() - t0
 
         self._set_labels(labels)

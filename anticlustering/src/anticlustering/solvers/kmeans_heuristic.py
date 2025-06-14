@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Tuple
 from ..core._config import KMeansConfig, Status
-from ..metrics.dissimilarity_matrix import sum_squared_to_centroids
+from ..metrics.dissimilarity_matrix import sum_squared_to_centroids, within_group_distance, get_dissimilarity_matrix
 
 
 class KMeansHeuristic:
@@ -30,7 +30,7 @@ class KMeansHeuristic:
         self.K = K
         self.cfg = config
 
-    def solve(self, X: np.ndarray) -> Tuple[np.ndarray, float, Status]:
+    def solve(self, X: np.ndarray, *, D: np.ndarray) -> Tuple[np.ndarray, float, Status]:
         """
         Partition X into K equally‐sized clusters that maximize
         within‐cluster variance (anticlustering).
@@ -39,6 +39,8 @@ class KMeansHeuristic:
         ----------
         X : np.ndarray, shape (N, D)
             Feature matrix.
+        D : np.ndarray, shape (N, N)
+            Dissimilarity matrix.
 
         Returns
         -------
@@ -56,6 +58,8 @@ class KMeansHeuristic:
         """
         if X is None:
             raise ValueError("Data matrix X must be provided")
+        if D is None:
+            D = get_dissimilarity_matrix(X, metric=self.cfg.metric)
         N = X.shape[0]
         if N % self.K != 0:
             raise ValueError(f"N={N} not divisible by K={self.K}")
@@ -68,6 +72,8 @@ class KMeansHeuristic:
             labels, score = self._single_run(X)
             if score > best_score:
                 best_labels, best_score = labels, score
+
+        best_score = within_group_distance(D=D, labels=best_labels)
 
         return best_labels, float(best_score), Status.heuristic
 

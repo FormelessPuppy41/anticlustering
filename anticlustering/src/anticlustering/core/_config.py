@@ -115,7 +115,7 @@ class KMeansConfig(BaseConfig):
     max_iter        : int                   = 300
     tol             : float                 = 1e-4
     verbose         : bool                  = False
-    random_state    : Optional[int]         = None  # for reproducibility
+    random_state    : Optional[int]         = 42  # for reproducibility
     max_n           : Optional[int]         = None  # max number of items (N) to solve
     time_limit      : Optional[int]         = None  # seconds
     metric          : str                   = "euclidean"
