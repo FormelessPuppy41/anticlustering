@@ -72,11 +72,12 @@ class ExchangeConfig(BaseConfig):
     """
     objective       : str                   = "diversity"
     metric          : str                   = "euclidean"
-    max_sweeps      : int                   = 10
-    patience        : int                   = 100
+    max_sweeps      : int                   = 1
+    patience        : int                   = 1
     verbose         : bool                  = False
     time_limit      : Optional[int]         = None  # seconds
-    k_neighbours    : int                   = 5
+    k_neighbours    : int                   = 10
+    n_restarts      : int                   = 1  # number of random initializations for exhange
 
 
 @dataclass(slots=True)
@@ -110,18 +111,14 @@ class KMeansConfig(BaseConfig):
     * ``tol`` is the relative tolerance with regards to inertia to declare convergence.
     * ``random_state`` is used for reproducibility of the results.
     """
-    n_clusters      : int                   = 2  # number of clusters (K)
-    n_init          : int                   = 10
-    max_iter        : int                   = 300
-    tol             : float                 = 1e-4
-    verbose         : bool                  = False
-    random_state    : Optional[int]         = 42  # for reproducibility
-    max_n           : Optional[int]         = None  # max number of items (N) to solve
-    time_limit      : Optional[int]         = None  # seconds
+    objective       : str                   = "diversity"
     metric          : str                   = "euclidean"
-    max_sweeps      : int                   = 10  # max number of sweeps for the heuristic
-    patience        : int                   = 100  # number of sweeps without improvement before stopping
-    n_restarts      : int                   = 5  # number of random initializations for k-means
+    max_sweeps      : int                   = 1
+    patience        : int                   = 1
+    verbose         : bool                  = False
+    time_limit      : Optional[int]         = None  # seconds
+    k_neighbours    : int                   = 10
+    n_restarts      : int                   = 1  # number of random initializations for kmeans
 
 @dataclass(slots=True)
 class RandomConfig(BaseConfig):

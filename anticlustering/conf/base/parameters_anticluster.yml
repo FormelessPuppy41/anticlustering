@@ -59,11 +59,11 @@ anticluster:
       verbose       : true
     - solver_name   : kmeans
       time_limit    : 180
+      objective     : diversity
       metric        : euclidean
       max_sweeps    : 1
       patience      : 1
       verbose       : true
-      n_restarts    : 2
     - solver_name   : matching
       time_limit    : 180
       metric        : euclidean

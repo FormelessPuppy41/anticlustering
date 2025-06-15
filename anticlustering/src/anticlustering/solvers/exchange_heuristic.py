@@ -1,3 +1,159 @@
+import numpy as np
+from typing import Callable, Literal, Tuple
+from ..core._config import KMeansConfig, Status
+from ..metrics.dissimilarity_matrix import (
+    sum_squared_to_centroids,
+    within_group_distance,
+    get_dissimilarity_matrix,
+)
+
+
+Objective = Literal["variance", "diversity"]
+
+
+class ExchangeHeuristic:
+    """
+    Generic exchange heuristic for anticlustering, parameterized by objective.
+
+    Algorithm (same for both objectives):
+      1) Random equal‐size initialization.
+      2) Repeatedly scan all cross‐cluster swaps (i,j) and compute Δ objective.
+      3) Execute the single swap with the largest positive Δ.
+      4) Stop when no swap yields Δ > tolerance.
+      5) Repeat for n_restarts and keep the best solution.
+    """
+
+    def __init__(
+        self,
+        K: int,
+        config: KMeansConfig,
+        objective: Objective = "diversity",
+        tol: float = 1e-8,
+        D: np.ndarray = None
+    ):
+        """
+        Parameters
+        ----------
+        K : int
+            Number of clusters (must exactly divide N).
+        config : KMeansConfig
+            - random_state : int, RNG seed
+            - n_restarts   : int, number of random initializations
+        objective : {"variance", "diversity"}
+            "variance"  → maximize sum_squared_to_centroids(X, labels)
+            "diversity"  → maximize within_group_distance(D, labels)
+        tol : float
+            Minimum positive gain to accept a swap.
+        D : np.ndarray, shape (N, N), optional
+            Pairwise squared‐Euclidean dissimilarities. Required if
+            objective="diversity". If None, it will be computed from X.
+        """
+        self.K = K
+        self.cfg = config
+        self.objective = objective
+        self.tol = tol
+        self.D = D
+
+        if objective == "variance":
+            # k-means anticlustering objective
+            self._obj_fn: Callable = sum_squared_to_centroids
+        elif objective == "diversity":
+            # anticluster‐editing (pairwise) objective
+            self._obj_fn = within_group_distance
+        else:
+            raise ValueError(f"Unknown objective: {objective}")
+
+    def solve(self, X: np.ndarray, D: np.ndarray = None) -> Tuple[np.ndarray, float, Status]:
+        """
+        Run the exchange heuristic under the chosen objective.
+
+        Parameters
+        ----------
+        X : np.ndarray, shape (N, D)
+            Feature matrix.
+        D : np.ndarray, shape (N, N), optional
+            Pairwise squared‐Euclidean dissimilarities. Required if
+            objective="diversity". If None, it will be computed.
+
+        Returns
+        -------
+        labels : np.ndarray, shape (N,)
+            Equal‐sized cluster assignments [0..K-1].
+        score : float
+            The maximized objective value.
+        status : Status
+            Always Status.heuristic.
+
+        Raises
+        ------
+        ValueError
+            If N % K != 0, or if D is needed but not provided.
+        """
+        N, _ = X.shape
+        if N % self.K != 0:
+            raise ValueError(f"N={N} not divisible by K={self.K}")
+
+        # Prepare D if needed
+        if self.objective == "diversity":
+            if D is None:
+                D = get_dissimilarity_matrix(X)
+        else:
+            D = None  # unused for variance objective
+
+        size = N // self.K
+        best_labels = None
+        best_score = -np.inf
+        rng = np.random.default_rng(self.cfg.random_state)
+
+        for restart in range(self.cfg.n_restarts):
+            # 1) random equal‐size init
+            labels = np.repeat(np.arange(self.K), size)
+            rng.shuffle(labels)
+
+            # 2) initial score
+            if self.objective == "variance":
+                score = self._obj_fn(X, labels)  # sum_squared_to_centroids
+            else:
+                score = self._obj_fn(D, labels)  # within_group_distance
+
+            # 3) exchange loop
+            while True:
+                best_delta = 0.0
+                best_i = best_j = -1
+
+                for i in range(N - 1):
+                    for j in range(i + 1, N):
+                        if labels[i] == labels[j]:
+                            continue
+                        # test swap
+                        labels[i], labels[j] = labels[j], labels[i]
+                        if self.objective == "variance":
+                            new_score = self._obj_fn(X, labels)
+                        else:
+                            new_score = self._obj_fn(D, labels)
+                        delta = new_score - score
+                        # revert
+                        labels[i], labels[j] = labels[j], labels[i]
+
+                        if delta > best_delta:
+                            best_delta = delta
+                            best_i, best_j = i, j
+
+                if best_delta > self.tol:
+                    labels[best_i], labels[best_j] = labels[best_j], labels[best_i]
+                    score += best_delta
+                else:
+                    break
+
+            # 4) record best
+            if score > best_score:
+                best_score = score
+                best_labels = labels.copy()
+
+        return best_labels, float(best_score), Status.heuristic
+
+
+""""
 
 import numpy as np
 from scipy.spatial.distance import squareform, pdist
@@ -11,10 +167,10 @@ import logging
 
 
 class ExchangeHeuristic:
-    """
+    ""
     A class that implements the exchange heuristic for anticlustering.
     This heuristic iteratively exchanges elements between clusters to improve the objective function.
-    """
+    ""
 
     def __init__(
             self, 
@@ -37,9 +193,9 @@ class ExchangeHeuristic:
     #  API
     # –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––– #
     def solve(self, X: np.ndarray) -> np.ndarray:
-        """
+        ""
         Main entry: returns cluster labels (shape (n,))
-        """
+        ""
         if self.D is None:
             if X is None:
                 raise ValueError("Either D or X must be provided.")
@@ -129,9 +285,9 @@ class ExchangeHeuristic:
     #  Helpers
     # –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––– #
     def _balanced_initialisation(self, n: int, rng: np.random.Generator) -> np.ndarray:
-        """
+        ""
         Returns an array of length n with exactly ⌊n/k⌋ or ⌈n/k⌉ points per cluster.
-        """
+        ""
         k = self.cfg.n_clusters
         base_size, remainder = divmod(n, k)
         sizes = np.array([base_size + 1] * remainder + [base_size] * (k - remainder))
@@ -140,9 +296,9 @@ class ExchangeHeuristic:
         return labels
 
     def _compute_all_intra(self, labels: np.ndarray, D: np.ndarray) -> np.ndarray:
-        """
+        ""
         Intra-cluster sums for every cluster (upper-triangle, no double counting).
-        """
+        ""
         k = self.cfg.n_clusters
         intra_sum = np.zeros(k, dtype=float)
         for c in range(k):
@@ -168,9 +324,9 @@ class ExchangeHeuristic:
         labels: np.ndarray,
         D: np.ndarray,
     ) -> float:
-        """
+        ""
         Δ objective if we put i→cj, j→ci (they are currently in ci, cj).
-        """
+        ""
         # Members currently in ci / cj (excluding i/j)
         members_ci = np.where(labels == ci)[0]
         members_cj = np.where(labels == cj)[0]
@@ -197,9 +353,9 @@ class ExchangeHeuristic:
         intra_sum: np.ndarray,
         D: np.ndarray,
     ):
-        """
+        ""
         Execute swap i↔j and update intra_sum in **O(n)**.
-        """
+        ""
         # contribution of i & j to their current clusters
         members_ci = np.where(labels == ci)[0]
         members_cj = np.where(labels == cj)[0]
@@ -222,3 +378,4 @@ class ExchangeHeuristic:
 
         # finally swap labels
         labels[i], labels[j] = cj, ci
+        """
