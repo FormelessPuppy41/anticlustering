@@ -13,7 +13,7 @@ simulation:
 simulation_study:
   k_values: [2, 3]
 
-  n_runs: 5000
+  n_runs: 150
 
   n_range:
     min: 10

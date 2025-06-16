@@ -1,8 +1,7 @@
 import numpy as np
-import random
 from typing import Tuple, Optional
 from ..core._config import MatchingConfig, Status
-from ..metrics.dissimilarity_matrix import get_dissimilarity_matrix, within_group_distance
+from ..metrics.dissimilarity_matrix import get_dissimilarity_matrix, diversity_objective
 
 
 class MatchingHeuristic:
@@ -38,6 +37,7 @@ class MatchingHeuristic:
             raise ValueError(f"MatchingHeuristic only supports K=2, got K={K}")
         self.K = K
         self.cfg = config
+        self.rng = np.random.default_rng(config.random_state)
         # Store a copy of the provided distance matrix (or None)
         self.D = D.copy() if D is not None else None
 
@@ -101,7 +101,7 @@ class MatchingHeuristic:
             i, j = np.unravel_index(flat_idx, M.shape)
 
             # Randomly assign one to cluster 0 and the other to cluster 1
-            if random.random() < 0.5:
+            if self.rng.random() < 0.5:
                 labels[i] = 0
                 labels[j] = 1
             else:
@@ -115,6 +115,6 @@ class MatchingHeuristic:
             M[:, j] = np.inf
 
         # 4) Compute the within‐cluster total dissimilarity
-        score = within_group_distance(D=self.D, labels=labels)
+        score = diversity_objective(self.D, labels)
 
         return labels, float(score), Status.heuristic

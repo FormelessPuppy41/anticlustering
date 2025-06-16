@@ -120,16 +120,16 @@ class _ModelEdgeILPBase:
         if self.cfg.mip_gap is not None:
             self._m.Params.MIPGap = float(self.cfg.mip_gap)
 
-    def solve(self) -> Tuple[np.ndarray, float, Status | str, float | None]:
+    def solve(self) -> Tuple[np.ndarray, float, Status, float | None]:
         self._set_params()
         self._m.optimize()
 
         status_map = {
-            GRB.OPTIMAL:  "optimal",
-            GRB.TIME_LIMIT: "timeout",
+            GRB.OPTIMAL:  Status.optimal,
+            GRB.TIME_LIMIT: Status.timeout,
         }
         st_code   = self._m.Status
-        status    = status_map.get(st_code, "error")
+        status    = status_map.get(st_code, Status.error)
 
         gap = None
         if self._m.Params.MIPGap > 0:

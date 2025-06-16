@@ -1,14 +1,9 @@
 from __future__ import annotations          # <- future-proof typing
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 import logging
 import numpy as np
-from enum import Enum
-from typing import Optional, TypeAlias, Iterable
 
 from ._config import BaseConfig, Status
-
-from ..metrics.dissimilarity_matrix import get_dissimilarity_matrix
 
 _LOG = logging.getLogger(__name__)
 

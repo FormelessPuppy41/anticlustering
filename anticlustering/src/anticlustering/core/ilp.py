@@ -58,7 +58,7 @@ class ILPAntiCluster(AntiCluster):
         X: Optional[np.ndarray] = None,
         *,
         D: Optional[np.ndarray] = None,
-    ) -> "ModelAntiClusterILP":
+    ) -> "ILPAntiCluster":
         """Compute anticlusters from data matrix *X* or a pre‑computed *D*.
 
         Notes
@@ -216,19 +216,19 @@ class PreClusterILPAntiCluster(ILPAntiCluster):
             config  =self.cfg
         )
 
-        _,_,_,_, solve_time = preclust.solve()
-        self._runtime_pre = solve_time
+        _,_,_,_, pre_time = preclust.solve()
+        self._runtime_pre = pre_time
         
         _LOG.info(
             "Preclustering completed in %.2f seconds with status: %s",
-            self._runtime_pre, preclust.status_
+            self._runtime_pre, preclust.status_.__str__()
         )
 
-        if preclust.status_ != "optimal":
+        if preclust.status_ != Status.optimal:
             _LOG.error(
-                "Preclustering failed to find an optimal solution: %s", preclust.status_
+                "Preclustering failed to find an optimal solution: %s", preclust.status_.__str__()
             )
-            if preclust.status_ != 'timeout':
+            if preclust.status_ != Status.timeout:
                 raise RuntimeError("Preclustering failed; cannot proceed with ILP.")
 
         forbidden_pairs = preclust.extract_group_pairs()
@@ -249,20 +249,19 @@ class PreClusterILPAntiCluster(ILPAntiCluster):
 
         # solve ------------------------------------------------------------
         _LOG.info("Starting Precluster/ILP anticlustering: N=%d, K=%d", N, self.cfg.n_clusters)
-        labels, score, status, gap, solve_time = self._model.solve()
-        self._runtime_ilp = solve_time
+        labels, score, status, gap, ilp_time = self._model.solve()
+        self._runtime_ilp = ilp_time
         _LOG.info(
             "ILP anticlustering completed in %.2f seconds with status: %s",
             self._runtime_ilp, status
         )
 
         # set labels and score ----------------------------------------
+        total_time = self._runtime_pre + self._runtime_ilp
         self._set_labels(labels)
         self._set_score(score)
         self._set_status(status, gap)
-        self._set_runtime(solve_time)
-        self._runtime = self._runtime_pre + self._runtime_ilp
-
+        self._set_runtime(total_time)
         return self
 
 

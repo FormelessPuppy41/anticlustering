@@ -2,7 +2,9 @@
 import numpy as np
 import pandas as pd
 from typing import List, Dict
+import logging
 
+_LOG = logging.getLogger(__name__)
 
 def simulate_matrices(
     n_values: List[int],
@@ -43,57 +45,83 @@ def generate_simulation_study_data(
     rng_seed            : int,
 ) -> pd.DataFrame:
     """
-    Monte Carlo data for Table 2 with N always divisible by K:
-      • For each run_id=1…n_runs
-      • For each K in k_values
-      • For each distribution in {uniform, normal_std, normal_wide}
-        – Compute M_min = ceil(n_range_min / K)
-               M_max = floor(n_range_max / K)
-        – Draw M ~ UniformInt[M_min, M_max]
-        – Set N = M * K
-        – Sample an (N × K) matrix
-    Returns a DataFrame with columns:
-      ['run_id', 'K', 'distribution', 'N', 'stimuli']
-    where stimuli is a NumPy array of shape (N, K).
+    Generate Monte Carlo stimuli for reproducing Table 2 of Papenberg & Klau (2022).
+
+    For each run_id=1…n_runs, each cluster‐count K in k_values, 
+    and each distribution in {uniform, normal_std, normal_wide}:
+
+      1. Compute M_min = ceil(n_range_min / K)
+         and M_max = floor(n_range_max / K).
+      2. Draw M ~ UniformInt[M_min, M_max].
+      3. Set N = M * K (so N is divisible by K and within [n_range_min, n_range_max]).
+      4. Draw number of features F ~ UniformInt[1, 4].
+      5. Sample a stimulus matrix X of shape (N, F) from the chosen distribution.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns:
+          - run_id       : int, simulation index (1…n_runs)
+          - K            : int, number of clusters
+          - distribution : str, one of "uniform", "normal_std", "normal_wide"
+          - N            : int, total sample size (multiple of K)
+          - F            : int, number of features (1 to 4)
+          - stimuli      : np.ndarray of shape (N, F), the generated data
+
+    Raises
+    ------
+    ValueError
+        If [n_range_min, n_range_max] does not contain any multiples of a given K.
     """
     rng = np.random.default_rng(rng_seed)
 
-    # map distribution names to sampling functions
+    # map distribution names to sampling lambdas
     dist_map = {
-        "uniform":    lambda size: rng.uniform(**dstr_unif, size=size),
-        "normal_std": lambda size: rng.normal(**dstr_normal_std, size=size),
-        "normal_wide":lambda size: rng.normal(**dstr_normal_wide, size=size),
+        "uniform":     lambda size: rng.uniform(**dstr_unif, size=size),
+        "normal_std":  lambda size: rng.normal(**dstr_normal_std, size=size),
+        "normal_wide": lambda size: rng.normal(**dstr_normal_wide, size=size),
     }
     dist_names = list(dist_map.keys())
 
-    # total number of parameter‐sets = n_runs × len(k_values)
-    total = n_runs * len(k_values)
-    run_ids = np.repeat(np.arange(1, n_runs + 1), len(k_values))
-    ks      = np.tile(k_values, n_runs)
-    dist_choices = rng.choice(dist_names, size=total)
+    # prepare run‐K grid
+    total_runs = n_runs * len(k_values)
+    run_ids    = np.repeat(np.arange(1, n_runs + 1), len(k_values))
+    ks         = np.tile(k_values, n_runs)
+    dists      = rng.choice(dist_names, size=total_runs)
 
     records = []
-    for run_id, K_, dist in zip(run_ids, ks, dist_choices):
-        # compute range of multiples that fit in [n_range_min, n_range_max]
+    for run_id, K_, dist in zip(run_ids, ks, dists):
+        # determine valid multiples of K_
         M_min = ceil(n_range_min / K_)
         M_max = n_range_max // K_
         if M_min > M_max:
             raise ValueError(
-                f"Range [{n_range_min},{n_range_max}] too small to get a multiple of {K_}"
+                f"No integer M in [ceil({n_range_min}/{K_}), floor({n_range_max}/{K_})]"
             )
+
         M = rng.integers(M_min, M_max + 1)
         N = M * K_
 
-        X = dist_map[dist]((N, K_))
+        #Reduce running time of K3:
+        if K_ == 3 and N > 30:
+            N = 30
+
+        # draw number of features
+        F = rng.integers(1, 5)  # 1,2,3,4
+
+        # sample the stimuli matrix
+        X = dist_map[dist]((N, F))
+
         records.append({
-            "run_id":      run_id,
-            "K":           K_,
-            "distribution":dist,
-            "N":           N,
-            "stimuli":     X,
+            "run_id":       run_id,
+            "K":            K_,
+            "distribution": dist,
+            "N":            N,
+            "F":            F,
+            "stimuli":      X,
         })
 
     df = pd.DataFrame(records)
-    print(f"Generated simulation study data with {len(df)} records.")
-    print(f"Example of data:\n{df.head(10)}")
+    _LOG.info("Generated %d simulation records", len(df))
+    _LOG.debug("First few rows:\n%s", df.head())
     return df

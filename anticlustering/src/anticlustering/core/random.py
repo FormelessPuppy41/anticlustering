@@ -4,7 +4,7 @@ from typing import Optional
 from .base import AntiCluster
 from ._registry import register_solver
 from ._config import RandomConfig
-from ..metrics.dissimilarity_matrix import get_dissimilarity_matrix, within_group_distance
+from ..metrics.dissimilarity_matrix import get_dissimilarity_matrix, diversity_objective
 from ..core._config import Status
 import logging
 
@@ -41,6 +41,7 @@ class RandomAntiCluster(AntiCluster):
         if N % K != 0:
             raise ValueError(f"Cannot split N={N} into {K} perfectly equal groups")
 
+        #TODO: Should use different random states to avoid identical scores. Right? How to do this.
         rng = np.random.default_rng(self.cfg.random_state)
 
         # 2) assign evenly and shuffle
@@ -50,7 +51,7 @@ class RandomAntiCluster(AntiCluster):
         runtime = time.perf_counter() - start
 
         # 3) compute within‐cluster score
-        score = within_group_distance(D=D, labels=labels)
+        score = diversity_objective(D, labels)
         
         # 4) store and return
         self._set_labels(labels)

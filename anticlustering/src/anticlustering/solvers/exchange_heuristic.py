@@ -1,9 +1,9 @@
 import numpy as np
 from typing import Callable, Literal, Tuple
-from ..core._config import KMeansConfig, Status
+from ..core._config import ExchangeConfig, Status
 from ..metrics.dissimilarity_matrix import (
     sum_squared_to_centroids,
-    within_group_distance,
+    diversity_objective,
     get_dissimilarity_matrix,
 )
 
@@ -26,7 +26,7 @@ class ExchangeHeuristic:
     def __init__(
         self,
         K: int,
-        config: KMeansConfig,
+        config: ExchangeConfig,
         objective: Objective = "diversity",
         tol: float = 1e-8,
         D: np.ndarray = None
@@ -59,7 +59,7 @@ class ExchangeHeuristic:
             self._obj_fn: Callable = sum_squared_to_centroids
         elif objective == "diversity":
             # anticluster‐editing (pairwise) objective
-            self._obj_fn = within_group_distance
+            self._obj_fn = diversity_objective
         else:
             raise ValueError(f"Unknown objective: {objective}")
 
@@ -95,7 +95,9 @@ class ExchangeHeuristic:
 
         # Prepare D if needed
         if self.objective == "diversity":
-            if D is None:
+            if D is None and self.D is not None:
+                D = self.D
+            elif D is None:
                 D = get_dissimilarity_matrix(X)
         else:
             D = None  # unused for variance objective
@@ -106,17 +108,17 @@ class ExchangeHeuristic:
         rng = np.random.default_rng(self.cfg.random_state)
 
         for restart in range(self.cfg.n_restarts):
-            # 1) random equal‐size init
+            # 1 random equal‐size init
             labels = np.repeat(np.arange(self.K), size)
             rng.shuffle(labels)
 
-            # 2) initial score
+            # 2 initial score
             if self.objective == "variance":
                 score = self._obj_fn(X, labels)  # sum_squared_to_centroids
             else:
                 score = self._obj_fn(D, labels)  # within_group_distance
 
-            # 3) exchange loop
+            # 3 exchange loop
             while True:
                 best_delta = 0.0
                 best_i = best_j = -1
@@ -145,7 +147,7 @@ class ExchangeHeuristic:
                 else:
                     break
 
-            # 4) record best
+            # 4 record best
             if score > best_score:
                 best_score = score
                 best_labels = labels.copy()

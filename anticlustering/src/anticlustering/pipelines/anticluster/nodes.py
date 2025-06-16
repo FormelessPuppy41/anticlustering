@@ -162,6 +162,10 @@ def benchmark_simulation(
             name = spec["solver_name"].lower()
             specs = {k: v for k, v in spec.items() if k != 'solver_name'}
 
+            if "random_state" in specs and specs["random_state"] is not None:
+                solver_idx = solvers.index(spec)
+                specs["random_state"] = run * 100 + solver_idx
+
             # skip matching if K!=2
             if name == "matching" and K != 2:
                 continue
@@ -216,26 +220,23 @@ def benchmark_simulation(
     df["percent"]    = df["score"] / df["best_score"] * 100
 
     # bin N into the three ranges
-    def bin_N(n):
-        if 10 <= n <= 20:   return "10–20"
-        if 21 <= n <= 40:   return "21–40"
-        if 42 <= n <= 100:  return "42–100"
-        return "other"
-    df["N_range"] = df["N"].apply(bin_N)
+    df["N_range"] = pd.cut(
+        df["N"],
+        bins=[9, 20, 40, 100],
+        labels=["10–20","21–40","42–100"]
+    )
 
     # aggregate means & SDs
     table2 = (
         df
-        .groupby(["K", "N_range", "solver"])
+        .groupby(["K", "N_range", "solver"], observed=True)
         .agg(
-            percent_mean=("percent", "mean"),
-            percent_sd=("percent", "std"),
-            M_mean=("M", "mean"),
-            M_sd=("M", "std"),
-            SD_mean=("SD", "mean"),
-            SD_sd=("SD", "std"),
+            pct_D_within = ("percent", "mean"),
+            avg_delta_M  = ("M",       "mean"),
+            avg_delta_SD = ("SD",      "mean"),
         )
         .reset_index()
+        .sort_values(["N_range", "K", "solver"], ascending=[True, True, True])
     )
 
     return table2
