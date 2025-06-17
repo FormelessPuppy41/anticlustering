@@ -43,12 +43,12 @@ anticluster:
   solvers_simulation_study:
     - solver_name   : ilp
       time_limit    : null              # forwarded into ILPConfig
-      mip_gap       : 0.00
+      mip_gap       : 0.0
       max_n         : 20
     - solver_name   : ilp_precluster             # ILP + preclustering variant
       preclustering : true
       time_limit    : null
-      mip_gap       : 0.00
+      mip_gap       : 0.0
       max_n         : 40
     - solver_name   : exchange
       time_limit    : 180

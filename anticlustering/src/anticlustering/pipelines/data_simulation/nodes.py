@@ -102,12 +102,16 @@ def generate_simulation_study_data(
         M = rng.integers(M_min, M_max + 1)
         N = M * K_
 
-        #Reduce running time of K3:
-        if K_ == 3 and N > 30:
-            N = 30
-
         # draw number of features
         F = rng.integers(1, 5)  # 1,2,3,4
+
+
+        #Reduce running time of K3:
+        if K_ == 3 and N > 30 and N < 40:
+            if F > 2:
+                N = 27
+            else: 
+                N = 30
 
         # sample the stimuli matrix
         X = dist_map[dist]((N, F))

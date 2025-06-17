@@ -2,7 +2,7 @@ import numpy as np
 from typing import Callable, Literal, Tuple
 from ..core._config import ExchangeConfig, Status
 from ..metrics.dissimilarity_matrix import (
-    sum_squared_to_centroids,
+    variance_objective,
     diversity_objective,
     get_dissimilarity_matrix,
 )
@@ -56,7 +56,7 @@ class ExchangeHeuristic:
 
         if objective == "variance":
             # k-means anticlustering objective
-            self._obj_fn: Callable = sum_squared_to_centroids
+            self._obj_fn: Callable = variance_objective
         elif objective == "diversity":
             # anticluster‐editing (pairwise) objective
             self._obj_fn = diversity_objective
@@ -94,13 +94,10 @@ class ExchangeHeuristic:
             raise ValueError(f"N={N} not divisible by K={self.K}")
 
         # Prepare D if needed
-        if self.objective == "diversity":
-            if D is None and self.D is not None:
-                D = self.D
-            elif D is None:
-                D = get_dissimilarity_matrix(X)
-        else:
-            D = None  # unused for variance objective
+        if D is None and self.D is not None:
+            D = self.D
+        elif D is None:
+            D = get_dissimilarity_matrix(X)
 
         size = N // self.K
         best_labels = None
@@ -113,10 +110,11 @@ class ExchangeHeuristic:
             rng.shuffle(labels)
 
             # 2 initial score
-            if self.objective == "variance":
-                score = self._obj_fn(X, labels)  # sum_squared_to_centroids
-            else:
-                score = self._obj_fn(D, labels)  # within_group_distance
+            score = (
+                self._obj_fn(X, labels)
+                if self.objective == 'variance'
+                else self._obj_fn(D, labels)
+            )
 
             # 3 exchange loop
             while True:
@@ -129,10 +127,12 @@ class ExchangeHeuristic:
                             continue
                         # test swap
                         labels[i], labels[j] = labels[j], labels[i]
-                        if self.objective == "variance":
-                            new_score = self._obj_fn(X, labels)
-                        else:
-                            new_score = self._obj_fn(D, labels)
+                        new_score = (
+                            self._obj_fn(X, labels)
+                            if self.objective == "variance"
+                            else self._obj_fn(D, labels)
+                        )
+    
                         delta = new_score - score
                         # revert
                         labels[i], labels[j] = labels[j], labels[i]
@@ -152,7 +152,9 @@ class ExchangeHeuristic:
                 best_score = score
                 best_labels = labels.copy()
 
-        return best_labels, float(best_score), Status.heuristic
+        final_diversity = diversity_objective(D, best_labels) 
+
+        return best_labels, float(final_diversity), Status.heuristic
 
 
 """"

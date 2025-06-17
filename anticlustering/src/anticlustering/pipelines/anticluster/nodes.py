@@ -11,7 +11,7 @@ from ...core import get_solver, AntiCluster, BaseConfig, ILPConfig, ExchangeConf
 from ...core._config import MatchingConfig, KMeansConfig, RandomConfig
 from ...visualisation import PartitionVisualizer
 
-from ...metrics.dissimilarity_matrix import within_group_distance, get_dissimilarity_matrix
+from ...metrics.dissimilarity_matrix import get_dissimilarity_matrix, diversity_objective
 
 _LOG = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ def benchmark_all(
     for key, df in data.items():          # key = "N_10", df = DataFrame
         N = int(key.split("_")[1])
         X = df.values
+        D = get_dissimilarity_matrix(X)
         bucket = {}
 
         # ---------- decide which solvers to run ----------
@@ -66,8 +67,7 @@ def benchmark_all(
             solver.fit(X)
 
             # Check try value of score:
-            D = get_dissimilarity_matrix(X)
-            true_score = within_group_distance(D, solver.labels_)
+            true_score = diversity_objective(D, solver.labels_)
             if abs(true_score - solver.score_) > 1e-6:
                 _LOG.warning(
                     "Solver %s returned a score of %.2f, but the true score is %.2f. "
@@ -215,16 +215,36 @@ def benchmark_simulation(
 
     df = pd.DataFrame(rows)
 
-    # compute percent of best per run/K
-    df["best_score"] = df.groupby(["run", "K"])["score"].transform("max")
-    df["percent"]    = df["score"] / df["best_score"] * 100
-
     # bin N into the three ranges
     df["N_range"] = pd.cut(
         df["N"],
         bins=[9, 20, 40, 100],
         labels=["10–20","21–40","42–100"]
     )
+    
+    # compute percent of best per run/K
+    # Define which solver is “optimal” in each N‐bin
+    benchmark_map = {
+        "10–20": "ilp",
+        "21–40": "ilp_precluster",
+        "42–100": "exchange",
+    }
+
+    # Extract the benchmark scores for each (run, K, N_range)
+    # 1. Filter df down to only those benchmark rows
+    bench_df = df[
+        df["solver"] == df["N_range"].map(benchmark_map)
+    ][["run", "K", "N_range", "score"]].rename(columns={"score": "best_score"})
+
+    # 2. Merge best_score back onto the full df
+    df = df.merge(
+        bench_df,
+        on=["run", "K", "N_range"],
+        how="left"
+    )
+
+    # 3. Compute percent
+    df["percent"] = df["score"] / df["best_score"] * 100
 
     # aggregate means & SDs
     table2 = (
