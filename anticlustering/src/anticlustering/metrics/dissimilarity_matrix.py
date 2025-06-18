@@ -1,6 +1,6 @@
 # src/anticlustering/solvers/_pairwise_mixin.py
 import numpy as np
-from .distance_metrics import compute_euclidean_distances
+from .distance_metrics import compute_squared_euclidean_distances
 from scipy.spatial.distance import cdist
 
 class PairwiseCacheMixin:
@@ -13,7 +13,7 @@ class PairwiseCacheMixin:
             self._dissimilarity is None
             or self._dissimilarity.shape[0] != X.shape[0]
         ):
-            self._dissimilarity = compute_euclidean_distances(X)
+            self._dissimilarity = compute_squared_euclidean_distances(X)
         return self._dissimilarity
 
 
@@ -34,8 +34,7 @@ def get_dissimilarity_matrix(X: np.ndarray, distance_measure: str = 'euclidean')
         Pairwise dissimilarity matrix computed using the specified distance measure.
     """
     if distance_measure == 'euclidean':
-        from .distance_metrics import compute_euclidean_distances
-        return compute_euclidean_distances(X)
+        return np.sqrt(compute_squared_euclidean_distances(X))
     if distance_measure != 'euclidean':
         raise ValueError(f"Unsupported distance measure: {distance_measure}. Only 'euclidean' is supported.")
     # For now, only Euclidean distance is implemented
@@ -60,7 +59,7 @@ def diversity_objective(
         dissim = data
     else:
         # compute pairwise Euclidean distances (not squared)
-        sq_d = compute_euclidean_distances(data)
+        sq_d = compute_squared_euclidean_distances(data)
         dissim = np.sqrt(sq_d)
 
     total = 0.0
@@ -72,40 +71,6 @@ def diversity_objective(
         triu = np.triu_indices_from(sub, k=1)
         total += sub[triu].sum()
     return total
-
-
-# def weighted_diversity_objective(
-#     data: np.ndarray,
-#     clusters: np.ndarray,
-#     frequencies: np.ndarray
-# ) -> float:
-#     """
-#     Compute the weighted diversity objective:
-#     sum over clusters of (within-cluster diversity / frequency).
-
-#     Args:
-#         data: (N x F) features or (N x N) dissimilarity.
-#         clusters: cluster labels length N.
-#         frequencies: 1d array of length K with frequencies for each cluster in label order.
-#     Returns:
-#         Weighted diversity score.
-#     """
-#     # Precompute full dissimilarity if needed
-#     if data.ndim == 2 and data.shape[0] == data.shape[1]:
-#         dissim = data
-#     else:
-#         sq_d = compute_euclidean_distances(data)
-#         dissim = np.sqrt(sq_d)
-
-#     total = 0.0
-#     unique = np.unique(clusters)
-#     for i, lbl in enumerate(unique):
-#         idx = np.where(clusters == lbl)[0]
-#         sub = dissim[np.ix_(idx, idx)]
-#         triu = np.triu_indices_from(sub, k=1)
-#         group_div = sub[triu].sum()
-#         total += group_div / frequencies[i]
-#     return total
 
 
 def cluster_centers(

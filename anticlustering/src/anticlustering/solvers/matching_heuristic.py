@@ -74,21 +74,21 @@ class MatchingHeuristic:
         """
         # 1) Obtain or compute the dissimilarity matrix
         if D is not None:
-            self.D = D
+            D_mat = D
         elif self.D is None:
             if X is None:
                 raise ValueError("Either X or a precomputed D must be provided")
-            self.D = get_dissimilarity_matrix(X)
+            D_mat = get_dissimilarity_matrix(X)
         # Validate matrix
-        if self.D.ndim != 2 or self.D.shape[0] != self.D.shape[1]:
+        if D_mat.ndim != 2 or D_mat.shape[0] != D_mat.shape[1]:
             raise ValueError("D must be a square (N×N) dissimilarity matrix")
 
-        N = self.D.shape[0]
+        N = D_mat.shape[0]
         if N % 2 != 0:
             raise ValueError(f"Cannot match an odd number of items: N={N}")
 
         # 2) Prepare a working copy and label array
-        M = self.D.copy()
+        M = D_mat.copy()
         # Prevent self‐matching by setting diagonal to +∞
         np.fill_diagonal(M, np.inf)
         # Initialize labels to -1 (unassigned)

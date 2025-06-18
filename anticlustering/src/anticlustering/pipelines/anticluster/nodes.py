@@ -133,7 +133,7 @@ def _compute_M(X: np.ndarray, labels: np.ndarray) -> float:
 def _compute_SD(X: np.ndarray, labels: np.ndarray) -> float:
     # std‐difference across clusters, averaged over features
     df = pd.DataFrame(X)
-    stds = df.groupby(labels).std(ddof=0).values
+    stds = df.groupby(labels).std(ddof=1).values
     return np.mean(np.ptp(stds, axis=0))
 
 
@@ -221,7 +221,7 @@ def benchmark_simulation(
         bins=[9, 20, 40, 100],
         labels=["10–20","21–40","42–100"]
     )
-    
+
     # compute percent of best per run/K
     # Define which solver is “optimal” in each N‐bin
     benchmark_map = {

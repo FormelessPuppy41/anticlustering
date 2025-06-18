@@ -22,7 +22,6 @@ class KMeansHeuristic:
     def __init__(self, K: int, config: KMeansConfig):
         self.K = K
         self.cfg = config
-        self.max_sweeps = getattr(config, "max_sweeps", 20)
         self.tol        = getattr(config, "tol", 0.0)
         self.rng        = np.random.default_rng(getattr(config, "random_state", None))
 
@@ -38,6 +37,20 @@ class KMeansHeuristic:
         )
 
         return ex_h.solve(X=X, D=None)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
         N = X.shape[0]

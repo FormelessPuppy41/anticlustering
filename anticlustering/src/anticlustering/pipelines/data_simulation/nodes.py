@@ -99,8 +99,8 @@ def generate_simulation_study_data(
                 f"No integer M in [ceil({n_range_min}/{K_}), floor({n_range_max}/{K_})]"
             )
 
-        M = rng.integers(M_min, M_max + 1)
-        N = M * K_
+        valid_Ns = np.arange(M_min * K_, (M_max + 1) * K_, K_)
+        N = int(rng.choice(valid_Ns))
 
         # draw number of features
         F = rng.integers(1, 5)  # 1,2,3,4
