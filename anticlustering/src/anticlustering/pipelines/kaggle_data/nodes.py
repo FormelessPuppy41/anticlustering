@@ -65,7 +65,7 @@ def parse_kaggle_data(
     term_cols        = kaggle_columns.get("special_numeric_columns") or []
     date_cols        = kaggle_columns.get("date_columns")            or []
     log_cols         = kaggle_columns.get("log_numeric_columns")     or []
-    log_cols         = []
+    log_cols         = [] # Do not log values for now. Keep the true values in the DF for the LoanRecord. Then use vectoriser to log transform them.
     ordinal_cols     = kaggle_columns.get("ordinal_columns")         or {}
     categorical_cols = kaggle_columns.get("categorical_columns")     or []
     passthrough_cols = kaggle_columns.get("passthrough_columns")     or []

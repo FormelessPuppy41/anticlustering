@@ -15,16 +15,16 @@ from .nodes import simulate_stream, update_anticlusters
 
 def create_pipeline(**kwargs) -> Pipeline:
     return pipeline([
-        node(
-            func=simulate_stream,
-            inputs=[
-                C.Data.KAGGLE_PROCESSED_LOAN_RECORDS,
-                P.OnlineAnticluster.STREAM_START_DATE,
-                P.OnlineAnticluster.STREAM_END_DATE
-            ],
-            outputs=C.Data.KAGGLE_STREAM_MONTHLY_EVENTS,
-            name="simulate_stream_node"
-        ),
+        # node(
+        #     func=simulate_stream,
+        #     inputs=[
+        #         C.Data.KAGGLE_PROCESSED_LOAN_RECORDS,
+        #         P.OnlineAnticluster.STREAM_START_DATE,
+        #         P.OnlineAnticluster.STREAM_END_DATE
+        #     ],
+        #     outputs=C.Data.KAGGLE_STREAM_MONTHLY_EVENTS,
+        #     name="simulate_stream_node"
+        # ),
         node(
             func=update_anticlusters,
             inputs=[

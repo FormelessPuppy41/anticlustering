@@ -124,7 +124,8 @@ def update_anticlusters(
     size_tolerance: int,
     rebalance_frequency: int,
     metrics_cat_cols: Sequence[str],
-) -> Dict[str, pd.DataFrame]:
+    stream_start_date: Optional[str] | None = None,
+) -> List[pd.DataFrame, pd.DataFrame]:
     """
     Drive **AnticlusterManager** month-by-month, record group assignments and
     quality metrics.
@@ -132,10 +133,38 @@ def update_anticlusters(
     Returns a dict of DataFrames so Kedro can wire them to two distinct
     catalog entries.
     """
-    vectorizer = LoanVectorizer.fit(
-        loans,
-        kaggle_cols
+    if stream_start_date:
+        start_dt = _dt.date.fromisoformat(stream_start_date)
+    else:
+        start_dt = min(lo.issue_d for lo in loans)
+
+    initial_loans = [lo for lo in loans if lo.issue_d <= start_dt]
+    if not initial_loans:
+        first_row = events_df.sort_values("date").iloc[0]
+        ids = (
+            ast.literal_eval(first_row["arrivals_ids"])
+            if isinstance(first_row["arrivals_ids"], str)
+            else first_row["arrivals_ids"]
+        ) or []
+        if not ids:
+            raise ValueError(
+                f"No loans before {start_dt!r} and no arrivals in first month; "
+                "cannot initialize vectorizer."
+            )
+        initial_loans = [loan_map[lid] for lid in ids]
+        _LOG.warning(
+            "No initial loans ≤ %s; falling back to first-month arrivals (%d loans)",
+            start_dt,
+            len(initial_loans),
+        )
+
+    # 4) Now it’s safe to fit:
+    _LOG.info(
+        "Fitting vectorizer on %d initial loans (issue_date ≤ %s)",
+        len(initial_loans), start_dt
     )
+    vectorizer = LoanVectorizer.fit(initial_loans, kaggle_cols)
+
     # ---- prep ----------------------------------------------------------- #
     mgr = AnticlusterManager(
         k=k_groups,
@@ -148,11 +177,8 @@ def update_anticlusters(
     assignments_rows: List[dict] = []
     metrics_rows: List[dict] = []
 
-    # Shouldn't we extract all loans that depart in the events_df but have never arrived?
-    # We then use the exchange heuristic to assign them to group and use this as our initial allocation.
-    # The reason for this, is that we now have a set of loans that are not assigned to any group, 
-    # but they do somehow depart bcs they expire.
-
+    # Keep track of previous assignment for each loan
+    prev_assignment: Dict[str, int] = {}
 
     # ---- main loop ------------------------------------------------------ #
     for row_idx, row in events_df.sort_values("date").iterrows():
@@ -175,6 +201,7 @@ def update_anticlusters(
         # ----- arrivals ----- #
         # Process arrivals all at once
         if arrivals:
+            vectorizer.partial_update(arrivals)
             mgr.add_loans(arrivals)
 
 
@@ -182,13 +209,6 @@ def update_anticlusters(
         if departures:
             mgr.remove_loans(departures)
         
-        # ----- rebalance yearly ----- #TODO: Can probably be removed bcs we rebalance if threshold is exceeded.
-        if rebalance_frequency > 0 and (row_idx % rebalance_frequency == 0):
-            swaps = mgr.rebalance()
-            _LOG.info(
-                "Rebalancing at %s (row %d). Number of swaps perfomed: %d", date, row_idx, swaps
-            )
-
         # rebalance if the groupsizes differ more than the tolerance
         min_group_size = min(mgr.group_sizes())
         max_group_size = max(mgr.group_sizes())
@@ -216,14 +236,30 @@ def update_anticlusters(
                 mgr.group_sizes()
             )
             
+        curr_snapshot = mgr.snapshot()
+
+        curr_assignment: Dict[str, int] = {
+            lid: g_idx 
+            for g_idx, members in curr_snapshot.items()
+            for lid in members
+        }
 
         # ----- record assignments (long) ----- #
-        for g_idx, member_ids in mgr.snapshot().items():
-            for lid in member_ids:
+        for lid, new_grp in curr_assignment.items():
+            old_grp = prev_assignment.get(lid)
+            if old_grp is None:
+                # truly new loan into clusters
                 assignments_rows.append(
-                    {"date": date, "loan_id": lid, "group": g_idx}
+                    {"date": date, "loan_id": lid, "group": new_grp}
+                )
+            elif old_grp != new_grp:
+                # loan moved groups during rebalance
+                assignments_rows.append(
+                    {"date": date, "loan_id": lid, "group": new_grp}
                 )
 
+        prev_assignment = curr_assignment
+        
         # ----- compute metrics (wide) ----- #
         metrics_row = {
             "date": date,

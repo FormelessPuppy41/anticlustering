@@ -93,6 +93,10 @@ class StreamEngine:
         Calendar date to start the simulation (defaults to min(issue_d))
     end_date
         Inclusive cut-off; if *None* the engine runs until every loan departs.
+    initial_active_pool : bool (default: **False**)
+        If *True*, the engine starts with all loans started before the start_date in the active pool.
+        If *False*, the pool is empty at the start and only populated by arrivals.
+        Current data starts from start_date, so this is not useful in this dataset.
     """
 
     # ----------  construction  ---------- #
@@ -102,6 +106,7 @@ class StreamEngine:
         loans: Iterable[LoanRecord],
         start_date: _dt.date | None = None,
         end_date: _dt.date | None = None,
+        initial_active_pool: bool = False
     ) -> None:
         # sort loans by issue_date so we can bisect arrivals efficiently
         self._all_loans: List[LoanRecord] = sorted(loans, key=lambda lo: lo.issue_d)
@@ -109,6 +114,8 @@ class StreamEngine:
 
         self.start_date   = start_date or min(lo.issue_d for lo in loans)
         self.end_date     = end_date if end_date else None
+
+        self.initial_active_pool: bool = initial_active_pool
 
         self.current_date: _dt.date = self.start_date
         
@@ -137,6 +144,24 @@ class StreamEngine:
         departures
             List of LoanRecord objects that *left* at this date.
         """
+        if self.initial_active_pool:
+            initial_date = _add_months(self.start_date, -1)
+            # Loans that started before start_date
+            initial_loans = [
+                lo for lo in self._all_loans 
+                if lo.issue_d < self.start_date
+            ]
+            # If there are no initial loans, skip the initial event and just do the while loop
+            if initial_loans:
+                # Seed pool and advance cursor
+                self._next_arrival_idx = bisect.bisect_left(self._arrival_dates, self.start_date)
+                for lo in self._all_loans[: self._next_arrival_idx]:
+                    self.pool.add(lo)
+                # Emit initial event
+                yield (initial_date, initial_loans, [])
+
+
+
         while True:
             arrived = self._process_arrivals()
             departed = self._process_departures()

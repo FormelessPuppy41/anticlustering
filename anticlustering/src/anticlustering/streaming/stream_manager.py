@@ -164,6 +164,12 @@ class AnticlusterManager:
 
         if not new_loans:
             return  # nothing to do
+        
+        # update scaler with new loans
+        a, b = self.vectorizer.partial_update(new_loans)
+
+        # Rescale all existing vectors and centroids if the vectorizer changed
+        self._rescale_all_vectors(a, b)
 
         # 0 ── vectorise the whole batch in one call
         X = self.vectorizer.transform(new_loans)
@@ -179,8 +185,6 @@ class AnticlusterManager:
         for loan, vec in zip(new_loans, X, strict=True):
             self._assign_single(loan, vec)
 
-        a, b = self.vectorizer.partial_update(new_loans)
-        self._rescale_all_vectors(a, b)
         # _LOG.info(
         #     "AntiMan.add_loans: Updated anticlusters after adding %d loans: %s. With centroids: %s",
         #     len(new_loans),

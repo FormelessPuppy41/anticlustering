@@ -226,24 +226,25 @@ class LoanVectorizer:
         # dates → timestamp
         if self.datetime_attrs:
             Xd = _extract_matrix(loans, self.datetime_attrs)
+            Xd = self._parse_dates_to_numeric(Xd)
             bad = check_nan_in_cols(Xd)
             if bad:
                 _LOG.warning(
                     "partial_update: NaNs found in datetime columns %r; parsing may yield NaNs",
                     [self.datetime_attrs[i] for i in bad]
                 )
-            blocks.append(self._parse_dates_to_numeric(Xd))
+            blocks.append(Xd)
 
         # ordinals (already numeric)
         if self.ordinal_attrs:
             Xd = _extract_matrix(loans, list(self.ordinal_attrs.keys()))
-            bad = check_nan_in_cols(Xo)
+            bad = check_nan_in_cols(Xd)
             if bad:
                 _LOG.warning(
                     "partial_update: NaNs found in ordinal columns %r",
                     [list(self.ordinal_attrs.keys())[i] for i in bad]
                 )
-            blocks.append(_extract_matrix(loans, list(self.ordinal_attrs.keys())))
+            blocks.append(Xd)
 
         # stack them
         X_full = (
@@ -252,13 +253,37 @@ class LoanVectorizer:
             else np.empty((len(loans), 0))
         )
 
-        # check whether X_full contains any nan values. Also, clearly indicate which columns contain nan values.
-        if np.isnan(X_full).any():
-            raise ValueError(
-                "partial_update: Input matrix X_full contains NaN values. "
-                "This is not allowed for partial_fit. Please check your data."
-                f" NaN columns: {[i for i in range(X_full.shape[1]) if np.isnan(X_full[:, i]).any()]}"
+        # more informative NaN‐check: locate exactly which loans and which attrs
+        mask = np.isnan(X_full)
+        if mask.any():
+            # find unique bad rows and columns
+            bad_rows, bad_cols = np.where(mask)
+            bad_rows = sorted(set(bad_rows))
+            bad_cols = sorted(set(bad_cols))
+
+            # map row‐indices back to loan_ids and objects
+            bad_loan_ids = [loans[i].loan_id for i in bad_rows]
+            bad_loan_objs = [loans[i] for i in bad_rows]
+
+            # map col‐indices back to attribute names
+            bad_attr_names = [self.num_to_scale[c] for c in bad_cols]
+
+            # pick the very first bad loan
+            first_i = bad_rows[0]
+            first_loan = loans[first_i]
+            first_vector = X_full[first_i, :]
+
+            _LOG.error(
+                "partial_update: NaNs found in numeric features for loan_ids %s on attrs %s",
+                bad_loan_ids, bad_attr_names
             )
+            _LOG.error("partial_update: First bad LoanRecord: %r", first_loan)
+            _LOG.error("partial_update: Corresponding full‐vector (with NaNs): %s", first_vector.tolist())
+
+            raise ValueError(
+                f"partial_update: NaNs in loans {bad_loan_ids} on numeric attrs {bad_attr_names}."
+            )
+
 
         # 3) Partial-fit on that full block
         self._num_scaler.partial_fit(X_full)
