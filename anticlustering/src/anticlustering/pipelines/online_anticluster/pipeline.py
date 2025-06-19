@@ -32,10 +32,8 @@ def create_pipeline(**kwargs) -> Pipeline:
                 C.Data.KAGGLE_STREAM_MONTHLY_EVENTS,
                 P.OnlineAnticluster.K_GROUPS,
                 P.OnlineAnticluster.KAGGLE_COLUMNS,
-                P.OnlineAnticluster.HARD_BALANCE_COLS,
-                P.OnlineAnticluster.SIZE_TOLERANCE,
-                P.OnlineAnticluster.REBALANCE_FREQUENCY,
-                P.OnlineAnticluster.METRICS_CAT_COLS
+                P.OnlineAnticluster.METRICS_CAT_COLS,
+                P.OnlineAnticluster.HARD_BALANCE_COLS
             ],
             outputs=[
                 C.Data.ANTICLUSTER_ASSIGNMENTS,

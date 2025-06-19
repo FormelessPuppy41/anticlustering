@@ -4,7 +4,7 @@ from .base import AntiCluster
 from ._registry import register_solver
 
 from ._config import KMeansConfig
-from ..solvers.kmeans_heuristic import KMeansHeuristic
+from ...solvers.kmeans_heuristic import KMeansHeuristic
 
 from typing import Optional
 import logging

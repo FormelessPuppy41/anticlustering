@@ -22,13 +22,14 @@ from __future__ import annotations
 
 import datetime as _dt
 from collections import defaultdict
-from typing import Dict, Iterable, Iterator, List, Tuple
+from typing import Dict, Iterable, Iterator, List, Tuple, Callable, Optional
+from dataclasses import dataclass
 
 import bisect
 import logging
 from dateutil.relativedelta import relativedelta
 
-from ..loan.loan import LoanRecord, LoanStatus, _add_months
+from ..core.loans.loan import LoanRecord, LoanStatus, _add_months
 
 _LOG = logging.getLogger(__name__)
 
@@ -77,6 +78,38 @@ class ActivePool:
 
 
 # --------------------------------------------------------------------------- #
+#                                 StreamEvent                                 #
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class StreamEvent:
+    """
+    Represents a single calendar step in the stream.
+    Contains the date, a list of loans that arrived at this date, and a list
+    of loans that departed at this date.
+    """
+    date: _dt.date
+    arrivals: List[LoanRecord]
+    departures: List[LoanRecord]
+
+class CalendarTicker(Iterator[_dt.date]):
+    def __init__(self, start_date: _dt.date, end_date: _dt.date):
+        if end_date < start_date:
+            raise ValueError("end_date must be greater than or equal to start_date")
+        self.current_date = start_date
+        self.end_date = end_date
+
+    def __iter__(self) -> "CalendarTicker":
+        return self
+    
+    def __next__(self) -> _dt.date:
+        if self.current_date > self.end_date:
+            raise StopIteration
+        next_date = self.current_date
+        # Advance to the first of the next month
+        self.current_date = _add_months(self.current_date, 1)
+        return next_date.replace(day=1)
+
+# --------------------------------------------------------------------------- #
 #                                 StreamEngine                                #
 # --------------------------------------------------------------------------- #
 
@@ -103,26 +136,63 @@ class StreamEngine:
 
     def __init__(
         self,
-        loans: Iterable[LoanRecord],
-        start_date: _dt.date | None = None,
-        end_date: _dt.date | None = None,
-        initial_active_pool: bool = False
+        loans: List[LoanRecord],
+        start_date: Optional[_dt.date] = None,
+        end_date: Optional[_dt.date] = None,
+        hooks: Optional[List[Callable[[StreamEvent], None]]] = None,
     ) -> None:
-        # sort loans by issue_date so we can bisect arrivals efficiently
-        self._all_loans: List[LoanRecord] = sorted(loans, key=lambda lo: lo.issue_d)
-        self._arrival_dates: List[_dt.date] = [lo.issue_d for lo in self._all_loans]
+        if not loans:
+            raise ValueError("StreamEngine requires a non‐empty list of LoanRecord")
 
-        self.start_date   = start_date or min(lo.issue_d for lo in loans)
-        self.end_date     = end_date if end_date else None
+        # Default time window
+        self.start_date = (
+            start_date
+            if start_date is not None
+            else min(lo.issue_d for lo in loans)
+        )
+        self.end_date = (
+            end_date
+            if end_date is not None
+            else max(lo.departure_date for lo in loans)
+        )
+        if self.end_date < self.start_date:
+            raise ValueError(
+                f"After defaults, end_date {self.end_date!r} < start_date {self.start_date!r}"
+            )
 
-        self.initial_active_pool: bool = initial_active_pool
+        self.loans = loans
+        self.hooks = hooks or []
 
-        self.current_date: _dt.date = self.start_date
-        
-        self.pool = ActivePool()
+        # Pre‐index arrivals/departures by date
+        self._arrivals: Dict[_dt.date, List[LoanRecord]] = self._index_by(lambda lo: lo.issue_d)
+        self._departures: Dict[_dt.date, List[LoanRecord]] = self._index_by(lambda lo: lo.departure_date)
 
-        # internal cursor: index into _all_loans for next arrival candidate
-        self._next_arrival_idx: int = 0
+    def _index_by(
+            self, 
+            key_fn: Callable[[LoanRecord], _dt.date]
+        ) -> Dict[_dt.date, List[LoanRecord]]:
+        idx: Dict[_dt.date, List[LoanRecord]] = {}
+        for lo in self.loans:
+            idx.setdefault(key_fn(lo), []).append(lo)
+        return idx
+
+    def _validate_day(self, current: _dt.date, arrivals: List[LoanRecord], departures: List[LoanRecord]) -> None:
+        # No loan can both arrive and depart (or be duplicated) on the same day
+        ids = [lo.loan_id for lo in arrivals + departures]
+        if len(ids) != len(set(ids)):
+            #extract the duplicates
+            seen: Dict[str, int] = {}
+            for loan_id in ids:
+                if loan_id in seen:
+                    seen[loan_id] += 1
+                else:
+                    seen[loan_id] = 1
+            duplicates = [loan_id for loan_id, count in seen.items() if count > 1]
+
+            # extract the loan records for the duplicates
+            loans = [lo for lo in arrivals + departures if lo.loan_id in duplicates]
+            raise ValueError(f"Duplicate loan IDs on {current!r}: {duplicates}. Loans: {loans!r}")
+
 
     # ------------------------------------------------------------------ #
     #                           main public API                           #
@@ -144,47 +214,24 @@ class StreamEngine:
         departures
             List of LoanRecord objects that *left* at this date.
         """
-        if self.initial_active_pool:
-            initial_date = _add_months(self.start_date, -1)
-            # Loans that started before start_date
-            initial_loans = [
-                lo for lo in self._all_loans 
-                if lo.issue_d < self.start_date
-            ]
-            # If there are no initial loans, skip the initial event and just do the while loop
-            if initial_loans:
-                # Seed pool and advance cursor
-                self._next_arrival_idx = bisect.bisect_left(self._arrival_dates, self.start_date)
-                for lo in self._all_loans[: self._next_arrival_idx]:
-                    self.pool.add(lo)
-                # Emit initial event
-                yield (initial_date, initial_loans, [])
+        for current in CalendarTicker(self.start_date, self.end_date):
+            arrivals = self._arrivals.get(current, [])
+            departures = self._departures.get(current, [])
+            self._validate_day(current, arrivals, departures)
 
+            evt = StreamEvent(current, arrivals, departures)
+            for hook in self.hooks:
+                hook(evt)
 
-
-        while True:
-            arrived = self._process_arrivals()
-            departed = self._process_departures()
-
-            yield (self.current_date, arrived, departed)
-
-            # advance one calendar month
-            self.current_date = _add_months(self.current_date, 1)
-            
-            # stopping criteria
-            if self.end_date and self.current_date > self.end_date:
-                _LOG.info("Reached end_date: %s", self.end_date)
-                break
-            if self._next_arrival_idx >= len(self._all_loans) and len(self.pool) == 0:
-                _LOG.info("No more arrivals and pool is empty; stopping.")
-                break
+            # *** Crucial: yield a 3‐tuple so unpacking works! ***
+            yield current, arrivals, departures
 
     # ------------------------------------------------------------------ #
     #                         internal mechanics                          #
     # ------------------------------------------------------------------ #
 
     # ----------  arrivals: issue_date == current_date  ---------- #
-
+    """
     def _process_arrivals(self) -> List[LoanRecord]:
         arrived: List[LoanRecord] = []
 
@@ -200,10 +247,10 @@ class StreamEngine:
         return arrived
 
     def _arrival_window(self) -> Tuple[int, int]:
-        """
+        ""
         Return (lo, hi) slice indices into ``_all_loans`` whose
         `issue_date` == `self.current_date`.
-        """
+        ""
         lo = bisect.bisect_left(self._arrival_dates, self.current_date, self._next_arrival_idx)
         hi = bisect.bisect_right(self._arrival_dates, self.current_date, lo)
         return lo, hi
@@ -223,7 +270,7 @@ class StreamEngine:
             departed.append(self.pool.remove(loan_id))
 
         return departed
-
+    """
 
 # --------------------------------------------------------------------------- #
 #                                quick smoke-test                            #

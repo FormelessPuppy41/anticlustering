@@ -1,6 +1,6 @@
 import numpy as np
 from typing import Callable, Literal, Tuple
-from ..core._config import ExchangeConfig, Status
+from ..core.offline._config import ExchangeConfig, Status
 from ..metrics.dissimilarity_matrix import (
     variance_objective,
     diversity_objective,

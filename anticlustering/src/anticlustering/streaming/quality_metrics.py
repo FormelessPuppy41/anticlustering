@@ -1,201 +1,137 @@
+# src/anticlustering/metrics/quality_metrics.py
+
 """
-metrics/quality.py
-==================
-
 Diagnostic helpers for evaluating **online anticlustering quality** at any
-time-point.  They are deliberately light—using only NumPy and Pandas—so they
-can run inside unit tests or scheduled monitoring jobs.
-
-Public API
-----------
-
-balance_score_categorical(...)
-within_group_variance(...)
-group_summary(...)
-
-Author:  Your Name <your.email@example.com>
+time-point. They integrate with the StreamingDataStore + AnticlusterManager
+architecture: grouping state is tracked in manager._groups, and raw data in
+manager.store.
 """
 
 from __future__ import annotations
-
 import math
-from typing import Callable, Dict, Iterable, List, Sequence
+from typing import Dict, List, Sequence, Any
 
 import numpy as np
 import pandas as pd
 import logging
-
 from collections import Counter
 
-from .stream_manager import AnticlusterManager
-from ..loan.vectorizer import LoanVectorizer
-from ..loan.loan import LoanRecord
-
+from .data_store import StreamingDataStore
+from ..core.streaming.stream_manager import AnticlusterManager
+from ..core.loans.loan import LoanRecord
 
 _LOG = logging.getLogger(__name__)
 
 
-# --------------------------------------------------------------------------- #
-#                       -----  Categorical balance  -----                     #
-# --------------------------------------------------------------------------- #
-
 def balance_score_categorical(
-    manager         : AnticlusterManager,
-    loans_by_id     : Dict[str, LoanRecord],
-    col             : str,
+    manager     : AnticlusterManager,
+    loans_by_id : Dict[str, LoanRecord],
+    col         : str,
 ) -> float:
     """
-    Gini-style dispersion score ∈ [0, 1] for how *evenly* the distinct values
-    of a categorical variable are spread across K anticlusters.
+    Gini‐style dispersion score ∈ [0,1] for how evenly the values of a
+    categorical attribute are spread across the K clusters.
 
-    • 0  ⇒ perfect balance (every group has exactly the overall proportion)  
-    • 1  ⇒ worst imbalance (all instances of at least one category sit in a
-           single group)
-
-    Parameters
-    ----------
-    manager
-        AnticlusterManager holding current partition.
-    loans_by_id
-        Mapping “loan_id → LoanRecord” for quick look-ups.
-    col
-        Attribute name of the LoanRecord you’d like to check (must be hashable).
-
-    Returns
-    -------
-    float
-        Balance score (lower = better).
+    0 ⇒ perfect balance; 1 ⇒ maximal imbalance.
     """
-    snapshot = manager.snapshot()  # {group_idx: [loan_id, …]}
-    categories: Dict[str, List[int]] = {}  # cat_value → counts per group
+    # number of groups
+    K = len(manager._groups)
 
-    # For each group, count occurrences of each category value
-    # (e.g. { "A": [10, 5, 0], "B": [0, 2, 8] } for 3 groups)
-    for g_idx, ids in snapshot.items():
-        for lid in ids:
-            cat_val = getattr(loans_by_id[lid], col)
-            if cat_val not in categories:
-                categories[cat_val] = [0] * manager.k
-            categories[cat_val][g_idx] += 1
+    # tally counts per category per group
+    categories: Dict[Any, List[int]] = {}
+    for gi, group in enumerate(manager._groups):
+        for lid in group.members:
+            val = getattr(loans_by_id[lid], col)
+            if val not in categories:
+                categories[val] = [0] * K
+            categories[val][gi] += 1
 
-    # For each category, compute normalised variance of its distribution
-    disp_scores = []
+    # compute per‐category Gini normalized by (1 - 1/K)
+    scores: List[float] = []
     for counts in categories.values():
         total = sum(counts)
         if total == 0:
             continue
-        probs = np.array(counts) / total
-        # Gini-style measure: ½ Σ_i Σ_j |p_i − p_j|
-        gini = 0.5 * np.sum(np.abs(probs.reshape(-1, 1) - probs))
-        # Normalise by max possible dispersion (1 − 1/K)
-        max_disp = 1.0 - 1.0 / manager.k
-        disp_scores.append(gini / max_disp)
+        p = np.array(counts, dtype=float) / total
+        # Gini: ½ Σ_i Σ_j |p_i - p_j|
+        gini = 0.5 * np.sum(np.abs(p[:, None] - p[None, :]))
+        max_gini = 1.0 - 1.0 / K
+        scores.append(gini / max_gini if max_gini > 0 else 0.0)
 
-    return float(np.mean(disp_scores)) if disp_scores else 0.0
+    return float(np.mean(scores)) if scores else 0.0
 
-
-# --------------------------------------------------------------------------- #
-#             -----  Within-group variance of numeric features  -----         #
-# --------------------------------------------------------------------------- #
 
 def within_group_variance(
-    manager: "AnticlusterManager",
-    loans_by_id: dict[str, "LoanRecord"]
+    manager     : AnticlusterManager,
+    loans_by_id : Dict[str, LoanRecord]
 ) -> float:
     """
-    Average within-group variance of the feature vectors.
-
-    Parameters
-    ----------
-    manager
-        The current AnticlusterManager (has groups + membership).
-    loans_by_id
-        Mapping {loan_id -> LoanRecord}.  Needed because
-        `manager._index[lid]` stores only the group number.
-    feat_fn
-        Function that converts a LoanRecord to a numeric 1-D vector.
+    Average within‐group variance of the numeric feature vectors.
     """
-    vectorizer = manager.vectorizer
-    all_var: list[np.ndarray] = []
+    vec = manager.store  # StreamingDataStore
+    variances: List[float] = []
 
-    idx = 0
-    for grp in manager._groups:
-        _LOG.info(f"Processing group {idx} with {grp.size} members")
-        if grp.size == 0:
-            idx += 1
+    for group in manager._groups:
+        if group.size == 0:
             continue
+        records = [loans_by_id[lid] for lid in group.members]
+        X = vec.vectorizer.transform(records)
+        var = np.var(X, axis=0).mean()
+        variances.append(var)
 
-        member_vecs = vectorizer.transform([loans_by_id[lid] for lid in grp.members])
-    
-        var = np.var(member_vecs, axis=0)
-        all_var.append(var.mean())
-        idx += 1
-
-        _LOG.info(
-            f"Group {idx} variance: {var.mean()} (size: {grp.size}, members: {grp.members}). Mean variance: {var.mean()} or {np.mean(all_var)}. member_vecs: {member_vecs}"
-        )
-
-
-    
-    var_within = float(np.mean(all_var)) if all_var else 0.0
-    if var_within is None or math.isnan(var_within) or var_within <= 0.0:
-        if var_within == 0.0:
-            _LOG.warning(
-                "within_group_variance: computed variance is 0.0, which indicates no variation within groups."
-            )
-        else: 
-            _LOG.warning(
-                f"within_group_variance: computed variance is {var_within}, which is suspiciously low or NaN. With all_var: {all_var}"
-            )
+    if not variances:
         return 0.0
-    _LOG.info(
-        f"within_group_variance: computed within-group variance: {var_within}. All group variances: {all_var}"
-    )
-    return var_within
 
-
-# --------------------------------------------------------------------------- #
-#                         -----  Quick group summary  -----                   #
-# --------------------------------------------------------------------------- #
+    avg_var = float(np.mean(variances))
+    if math.isnan(avg_var) or avg_var < 0:
+        _LOG.warning("within_group_variance: invalid value %r, returning 0", avg_var)
+        return 0.0
+    return avg_var
 
 
 def group_summary(
-    manager         : AnticlusterManager,
-    loans_by_id     : Dict[str, LoanRecord],
-    cat_cols        : Sequence[str] | None                  = None
+    manager      : AnticlusterManager,
+    loans_by_id  : Dict[str, LoanRecord],
+    cat_cols     : Sequence[str] | None = None
 ) -> pd.DataFrame:
     """
-    Return a DataFrame with *one row per group* summarising:
-
-    • size  
-    • centroid of numeric features  
-    • share of each categorical value (optional)  
-
-    This is handy for quick eyeballing in a notebook or logging snapshots.
+    Return a DataFrame, one row per group, with:
+      - 'size'
+      - numeric centroid components 'centroid_0', 'centroid_1', …
+      - categorical proportions for each col=value
     """
-    cat_cols = tuple(cat_cols or [])
-    vec_dim = manager.vectorizer.transform(
-        [next(iter(loans_by_id.values()))]
-    ).shape[1]
-    
-    records: List[dict] = []
-    for g_idx, grp in enumerate(manager._groups):
-        row: dict = {"group": g_idx, "size": grp.size}
+    cat_cols = cat_cols or []
+    vec = manager.store
+    # determine vector dimension
+    # take an arbitrary loan to compute total dims
+    sample = next(iter(loans_by_id.values()), None)
+    if sample:
+        total_dim = vec.vectorizer.transform([sample]).shape[1]
+    else:
+        total_dim = 0
+
+    rows: List[Dict[str, Any]] = []
+    for gi, group in enumerate(manager._groups):
+        row: Dict[str, Any] = {"group": gi, "size": group.size}
 
         # numeric centroid
-        if grp.centroid is not None:
-            row.update({f"centroid_{d}": grp.centroid[d] for d in range(vec_dim)})
+        if group.centroid is not None:
+            for d in range(total_dim):
+                row[f"centroid_{d}"] = float(group.centroid[d])
         else:
-            row.update({f"centroid_{d}": np.nan for d in range(vec_dim)})
+            for d in range(total_dim):
+                row[f"centroid_{d}"] = np.nan
 
         # categorical proportions
         for col in cat_cols:
-            values = [getattr(loans_by_id[lid], col) for lid in grp.members]
-            if values:
-                counts = Counter(values)
-                total = sum(counts.values())
-                for val, cnt in counts.items():
-                    row[f"{col}={val}"] = cnt / total
-        records.append(row)
+            vals = [getattr(loans_by_id[lid], col) for lid in group.members]
+            if not vals:
+                continue
+            cnt = Counter(vals)
+            total = sum(cnt.values())
+            for val, c in cnt.items():
+                row[f"{col}={val}"] = c / total
 
-    return pd.DataFrame(records).fillna(0.0)
+        rows.append(row)
+
+    return pd.DataFrame(rows).fillna(0.0)

@@ -51,7 +51,7 @@ def get_solver(name: str, /, *args: Any, **kwargs: Any) -> AntiCluster:
             "Call it like get_solver('ilp', config=ILPConfig(...))."
         )
 
-    if not isinstance(config, BaseConfig):
+    if not isinstance(config, (BaseConfig)):
         raise TypeError(
             f"'config' must be a BaseConfig (got {type(config).__name__})."
         )

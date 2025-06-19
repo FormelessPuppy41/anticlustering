@@ -20,7 +20,7 @@ from dateutil import parser as _p
 
 from sklearn.preprocessing import StandardScaler
 
-from .loan import LoanRecord, LoanStatus
+from ..core.loans.loan import LoanRecord, LoanStatus
 from .utils import _parse_date
 
 # ── helpers ───────────────────────────────────────────────────────────────
@@ -216,5 +216,10 @@ def parse_kaggle_dataframe(
     numeric_cols = df.select_dtypes(include=["number"]).columns
     df[numeric_cols] = df[numeric_cols].fillna(fill_numeric_nan) 
     #TODO: consider using a more sophisticated NaN handling strategy. e.g. imputation, etc. 
+
+    # drop rows where issue_d and last_pymnt_d are equal
+    if "issue_d" in df.columns and "last_pymnt_d" in df.columns:
+        df = df[df["issue_d"] != df["last_pymnt_d"]]
+
 
     return df

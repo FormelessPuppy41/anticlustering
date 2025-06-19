@@ -7,8 +7,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-from ...core import get_solver, AntiCluster, BaseConfig, ILPConfig, ExchangeConfig, OnlineConfig
-from ...core._config import MatchingConfig, KMeansConfig, RandomConfig
+from ...core import get_solver, AntiCluster, BaseConfig, ILPConfig, ExchangeConfig
+from ...core.offline._config import MatchingConfig, KMeansConfig, RandomConfig
 from ...visualisation import PartitionVisualizer
 
 from ...metrics.dissimilarity_matrix import get_dissimilarity_matrix, diversity_objective
@@ -51,8 +51,6 @@ def benchmark_all(
                 cfg = ILPConfig(n_clusters=n_clusters,**spec)
             elif name == "exchange":
                 cfg = ExchangeConfig(n_clusters=n_clusters, **spec)
-            elif name == "online":
-                cfg = OnlineConfig(n_clusters=n_clusters, **spec)
             else: 
                 cfg = BaseConfig(n_clusters=n_clusters, **spec)
 

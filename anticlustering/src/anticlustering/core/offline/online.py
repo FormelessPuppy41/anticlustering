@@ -28,7 +28,7 @@ from typing import Iterable, List, Sequence
 import numpy as np
 import pandas as pd
 
-from .base import AntiCluster, Status
+from .offline.base import AntiCluster, Status
 from ..core import register_solver  # <- decorator to register this solver
 from ._config import OnlineConfig  # <- add this dataclass to your config.py
 from ..loan.loan import LoanRecord

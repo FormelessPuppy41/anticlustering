@@ -25,9 +25,9 @@ import pyomo.environ as pyo
 
 from .base import AntiCluster, BaseConfig, Status
 from ._registry import register_solver
-from ..metrics.dissimilarity_matrix import get_dissimilarity_matrix
+from ...metrics.dissimilarity_matrix import get_dissimilarity_matrix
 
-from ..solvers.edge_ilp import ModelPreClusterILP, ModelAntiClusterILP
+from ...solvers.edge_ilp import ModelPreClusterILP, ModelAntiClusterILP
 from ._config import ILPConfig
 
 

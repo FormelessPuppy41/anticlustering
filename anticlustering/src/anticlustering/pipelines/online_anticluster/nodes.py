@@ -38,15 +38,16 @@ Your Name  <your.email@example.com>
 import ast
 import datetime as _dt
 import logging
-from typing import Dict, List, Sequence
+from typing import Dict, List, Sequence, Optional, Any
 
 import pandas as pd
 import numpy as np
 
-from ...loan.loan import LoanRecord, LoanRecordFeatures
-from ...loan.vectorizer import LoanVectorizer
+from ...core.loans.loan import LoanRecord, LoanRecordFeatures
+from ...core.loans.vectorizer import LoanVectorizer
+from ...core.online._registry import get_online_solver
 from ...streaming.stream import StreamEngine
-from ...streaming.stream_manager import AnticlusterManager
+from ...core.streaming.stream_manager import AnticlusterManager
 from ...streaming.quality_metrics import (
     balance_score_categorical,
     within_group_variance,
@@ -115,171 +116,95 @@ def simulate_stream(
     return df_events
 
 
+
+
+
+
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from ...core.online._config import OnlineExchangeConfig
+from ...core.loans.vectorizer import LoanVectorizerConfig
+
+_LOG = logging.getLogger(__name__)
+
+
 def update_anticlusters(
     loans: List[LoanRecord],
     events_df: pd.DataFrame,
-    k_groups: int,
+    k: int,
     kaggle_cols: Dict[str, List[str]],
-    hard_balance_cols: Sequence[str],
-    size_tolerance: int,
-    rebalance_frequency: int,
-    metrics_cat_cols: Sequence[str],
-    stream_start_date: Optional[str] | None = None,
-) -> List[pd.DataFrame, pd.DataFrame]:
+    metrics_cat_cols: List[str],
+    hard_balance_cols: List[str] | None = None,
+) -> List[pd.DataFrame]:
     """
-    Drive **AnticlusterManager** month-by-month, record group assignments and
-    quality metrics.
-
-    Returns a dict of DataFrames so Kedro can wire them to two distinct
-    catalog entries.
+    Processes a stream of monthly events, returning:
+      - df_assign: long table of (date, loan_id, group)
+      - df_metrics: wide table of metrics per date
     """
-    if stream_start_date:
-        start_dt = _dt.date.fromisoformat(stream_start_date)
-    else:
-        start_dt = min(lo.issue_d for lo in loans)
 
-    initial_loans = [lo for lo in loans if lo.issue_d <= start_dt]
-    if not initial_loans:
-        first_row = events_df.sort_values("date").iloc[0]
-        ids = (
-            ast.literal_eval(first_row["arrivals_ids"])
-            if isinstance(first_row["arrivals_ids"], str)
-            else first_row["arrivals_ids"]
-        ) or []
-        if not ids:
-            raise ValueError(
-                f"No loans before {start_dt!r} and no arrivals in first month; "
-                "cannot initialize vectorizer."
-            )
-        initial_loans = [loan_map[lid] for lid in ids]
-        _LOG.warning(
-            "No initial loans ≤ %s; falling back to first-month arrivals (%d loans)",
-            start_dt,
-            len(initial_loans),
-        )
-
-    # 4) Now it’s safe to fit:
-    _LOG.info(
-        "Fitting vectorizer on %d initial loans (issue_date ≤ %s)",
-        len(initial_loans), start_dt
+    # Map loan_id → record
+    loan_map = {ln.loan_id: ln for ln in loans}
+    vector_config = LoanVectorizerConfig(
+        kaggle_columns=kaggle_cols,
+        num_scaler=StandardScaler(),
+        cat_encoder=OneHotEncoder(handle_unknown="ignore",sparse_output=False),
     )
-    vectorizer = LoanVectorizer.fit(initial_loans, kaggle_cols)
-
-    # ---- prep ----------------------------------------------------------- #
+    online_exchange_config = OnlineExchangeConfig(n_clusters=k)
+    # Initialize manager with chosen solver
+    solver = get_online_solver("online_exchange", config=online_exchange_config)  # or pass in solver_name via params
     mgr = AnticlusterManager(
-        k=k_groups,
-        vectorizer=vectorizer,
-        hard_balance_cols=hard_balance_cols,
-        size_tolerance=size_tolerance,
+        solver=solver,
+        vectorizer_config=vector_config,
+        hard_balance_cols=hard_balance_cols
     )
-    loan_map: Dict[str, LoanRecord] = {lo.loan_id: lo for lo in loans}
 
-    assignments_rows: List[dict] = []
-    metrics_rows: List[dict] = []
+    assignments_rows: List[Dict[str,Any]] = []
+    metrics_rows:     List[Dict[str,Any]] = []
+    prev_assignment: Dict[str,int] = {}
 
-    # Keep track of previous assignment for each loan
-    prev_assignment: Dict[str, int] = {}
-
-    # ---- main loop ------------------------------------------------------ #
-    for row_idx, row in events_df.sort_values("date").iterrows():
+    # Process each event date in order
+    for _, row in events_df.sort_values("date").iterrows():
         date = LoanRecord._parse_date(row["date"])
 
-        # ---------- normalise the two list columns -----------------
-        arrival_ids = row["arrivals_ids"]
-        if isinstance(arrival_ids, str):
-            arrival_ids = ast.literal_eval(arrival_ids) or []   # "" → []
-        departure_ids = row["departures_ids"]
-        if isinstance(departure_ids, str):
-            departure_ids = ast.literal_eval(departure_ids) or []
-        # -----------------------------------------------------------
+        # parse arrivals/departures lists
+        raw_arr = row["arrivals_ids"]
+        arr_ids = ast.literal_eval(raw_arr) if isinstance(raw_arr, str) else row["arrivals_ids"]
+        raw_dep = row["departures_ids"]
+        dep_ids = ast.literal_eval(raw_dep) if isinstance(raw_dep, str) else row["departures_ids"]
 
-        # ---------- use the normalised variables; DO NOT touch row[...] again ---
-        arrivals   = [loan_map[lid] for lid in arrival_ids]
-        departures = [loan_map[lid] for lid in departure_ids]
-        #departures = departure_ids
+        arrivals   = [loan_map[lid] for lid in arr_ids]
+        departures = [loan_map[lid] for lid in dep_ids]
 
-        # ----- arrivals ----- #
-        # Process arrivals all at once
+        # feed arrivals
         if arrivals:
-            vectorizer.partial_update(arrivals)
-            mgr.add_loans(arrivals)
+            mgr.on_arrival(arrivals)
 
-
-        # ----- departures ----- #
+        # feed departures
         if departures:
-            mgr.remove_loans(departures)
-        
-        # rebalance if the groupsizes differ more than the tolerance
-        min_group_size = min(mgr.group_sizes())
-        max_group_size = max(mgr.group_sizes())
-        _LOG.info(
-            "update_anticlusters: Group sizes at %s (row %d): min: %d, max: %d",
-            date,
-            row_idx,
-            min_group_size,
-            max_group_size,
-        )
-        if max_group_size - min_group_size > size_tolerance:
-            initial_sizes = mgr.group_sizes()
-            swaps = mgr.rebalance()
-            _LOG.info(
-                "Rebalancing at %s (row %d) due to imbalance of groups (min: %d, max: %d). Number of swaps perfomed: %d",
-                date,
-                row_idx,
-                min_group_size,
-                max_group_size,
-                swaps,
-            )
-            _LOG.info(
-                "update_anticlusters: Rebalanced - initial group sizes: %s. Final group sizes: %s",
-                initial_sizes,
-                mgr.group_sizes()
-            )
-            
-        curr_snapshot = mgr.snapshot()
+            mgr.on_departure(departures)
 
-        curr_assignment: Dict[str, int] = {
-            lid: g_idx 
-            for g_idx, members in curr_snapshot.items()
-            for lid in members
-        }
+        # snapshot & record any moves
+        current = mgr.get_assignments()  # Dict[str,int]
+        for lid, grp in current.items():
+            old = prev_assignment.get(lid)
+            if old is None or old != grp:
+                assignments_rows.append({"date": date, "loan_id": lid, "group": grp})
+        prev_assignment = current.copy()
 
-        # ----- record assignments (long) ----- #
-        for lid, new_grp in curr_assignment.items():
-            old_grp = prev_assignment.get(lid)
-            if old_grp is None:
-                # truly new loan into clusters
-                assignments_rows.append(
-                    {"date": date, "loan_id": lid, "group": new_grp}
-                )
-            elif old_grp != new_grp:
-                # loan moved groups during rebalance
-                assignments_rows.append(
-                    {"date": date, "loan_id": lid, "group": new_grp}
-                )
-
-        prev_assignment = curr_assignment
-        
-        # ----- compute metrics (wide) ----- #
-        metrics_row = {
+        # compute metrics row
+        row_metrics: Dict[str,Any] = {
             "date": date,
-            "group_sizes": mgr.group_sizes(),
+            "group_sizes": mgr.group_sizes,
             "within_var": within_group_variance(mgr, loan_map),
-            "group_centroids": mgr.group_centroids(),
+            "group_centroids": mgr.centroids,
         }
         for cat in metrics_cat_cols:
-            metrics_row[f"balance_{cat}"] = balance_score_categorical(
-                mgr, loan_map, cat
-            )
-        metrics_rows.append(metrics_row)
+            row_metrics[f"balance_{cat}"] = balance_score_categorical(mgr, loan_map, cat)
 
-    # ---- assemble outputs ---------------------------------------------- #
+        metrics_rows.append(row_metrics)
+
+    # assemble outputs exactly as before
     df_assign = pd.DataFrame(assignments_rows)
     df_metrics = pd.DataFrame(metrics_rows)
-
-    # tidy the list columns for easier downstream use
     df_metrics["group_sizes"] = df_metrics["group_sizes"].apply(np.array)
 
     return [df_assign, df_metrics]
-
-

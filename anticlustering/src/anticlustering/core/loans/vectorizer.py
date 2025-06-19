@@ -14,15 +14,21 @@ from .loan import LoanRecord   # your dataclass, unchanged
 
 _LOG = logging.getLogger(__name__)
 
+@dataclass(slots=True)
+class LoanVectorizerConfig:
+    """Configuration for the LoanVectorizer."""
+    kaggle_columns: Dict[str, Sequence[str]]
+    num_scaler: Optional[StandardScaler]
+    cat_encoder: Optional[OneHotEncoder]
+
+
 @dataclass
 class LoanVectorizer:
     """Vectorises loans according to lists received at run-time."""
 
     def __init__(
             self,
-            kaggle_columns: Dict[str, Sequence[str]] = None,
-            num_scaler: Optional[StandardScaler] = None,
-            cat_encoder: Optional[OneHotEncoder] = None,
+            config: LoanVectorizerConfig
         ) -> None:
         """
         Initialize the LoanVectorizer with column specifications and transformers.
@@ -48,15 +54,16 @@ class LoanVectorizer:
             If not provided, a new encoder will be created during fitting.
         """
         # --- store spec and fallback ---
-        self.kaggle_columns = kaggle_columns or {}
+        self.kaggle_columns = config.kaggle_columns or {}
+
         # --- extract feature lists with safe defaults ---
-        self.numeric_attrs = list(self.kaggle_columns.get("numeric_columns") or [])
-        self.log_numeric_attrs = list(self.kaggle_columns.get("log_numeric_columns") or [])
-        self.percentage_numeric_attrs = list(self.kaggle_columns.get("percentage_columns") or [])
-        self.special_numeric_attrs = list(self.kaggle_columns.get("special_numeric_columns") or [])
-        self.datetime_attrs = list(self.kaggle_columns.get("date_columns") or [])
-        self.ordinal_attrs = self.kaggle_columns.get("ordinal_columns") or {}
-        self.categorical_attrs = list(self.kaggle_columns.get("categorical_columns") or [])
+        self.numeric_attrs           = list(self.kaggle_columns.get("numeric_columns") or [])
+        self.log_numeric_attrs       = list(self.kaggle_columns.get("log_numeric_columns") or [])
+        self.percentage_numeric_attrs= list(self.kaggle_columns.get("percentage_columns") or [])
+        self.special_numeric_attrs   = list(self.kaggle_columns.get("special_numeric_columns") or [])
+        self.datetime_attrs          = list(self.kaggle_columns.get("date_columns") or [])
+        self.ordinal_attrs           = self.kaggle_columns.get("ordinal_columns", {}) or {}
+        self.categorical_attrs       = list(self.kaggle_columns.get("categorical_columns") or [])
 
         self.num_to_scale = (
             self.numeric_attrs +
@@ -68,8 +75,8 @@ class LoanVectorizer:
         )
 
         # --- store transformers ---
-        self._num_scaler = num_scaler
-        self._cat_encoder = cat_encoder
+        self._num_scaler = config.num_scaler 
+        self._cat_encoder = config.cat_encoder
 
         
     # ---------- factory ------------------------------------------------------
@@ -79,7 +86,13 @@ class LoanVectorizer:
         loans: List[LoanRecord],
         kaggle_columns: Optional[Dict[str, Sequence[str]]] = None,
     ) -> LoanVectorizer:
-        inst = cls(kaggle_columns)
+        kag_cols     = kaggle_columns or {}
+        num_scaler   = StandardScaler()
+        cat_encoder  = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+
+        # build the instance
+        inst = cls(LoanVectorizerConfig(kag_cols, num_scaler, cat_encoder))
+
 
         # Build all numeric blocks
         blocks: List[np.ndarray] = []
@@ -112,7 +125,7 @@ class LoanVectorizer:
             _LOG.warning("fit: No categorical attrs; skipping OneHotEncoder fit.")
             cat_encoder = None
 
-        return cls(kaggle_columns, num_scaler, cat_encoder)   
+        return inst
 
     # ---------- public API ---------------------------------------------------
     def transform(self, loans: List[LoanRecord]) -> np.ndarray:
@@ -145,16 +158,6 @@ class LoanVectorizer:
         else:
             X_cat = np.empty((len(loans), 0))
 
-        # _LOG.info(
-        #     "transform: Transformed %d loans → %d numeric + %d categorical features. \n The transformed loan ids are: %s",
-        #     len(loans), X_num.shape[1], X_cat.shape[1], [lo.loan_id for lo in loans]
-        # )
-        # Log the difference between the original numeric features and the transformed ones
-        # _LOG.info(
-        #     "transform: Showing the difference for the first loan in: Original numeric features: %s, Transformed numeric features: %s",
-        #     [getattr(loans[0], attr) for attr in self.num_to_scale],
-        #     X_num[0, :len(self.num_to_scale)].tolist()
-        # )
         return np.hstack([X_num, X_cat])
 
     
@@ -191,6 +194,28 @@ class LoanVectorizer:
             N = len(self.num_to_scale)
             return np.ones(N, dtype=float), np.zeros(N, dtype=float)
 
+        # if scaler not yet fitted
+        if not hasattr(self._num_scaler, "mean_"):
+            # initial fit on this batch
+            blocks: List[np.ndarray] = []
+            if self.numeric_attrs:
+                blocks.append(_extract_matrix(loans, self.numeric_attrs))
+            if self.log_numeric_attrs:
+                blocks.append(np.log1p(_extract_matrix(loans, self.log_numeric_attrs)))
+            if self.percentage_numeric_attrs:
+                blocks.append(_extract_matrix(loans, self.percentage_numeric_attrs))
+            if self.special_numeric_attrs:
+                blocks.append(_extract_matrix(loans, self.special_numeric_attrs))
+            if self.datetime_attrs:
+                blocks.append(self._parse_dates_to_numeric(_extract_matrix(loans, self.datetime_attrs)))
+            if self.ordinal_attrs:
+                blocks.append(_extract_matrix(loans, list(self.ordinal_attrs.keys())))
+
+            X_full = np.hstack(blocks) if blocks else np.empty((len(loans), 0))
+            self._num_scaler.partial_fit(X_full)
+            new_mean, new_scale = self._num_scaler.mean_, self._num_scaler.scale_
+            return np.ones_like(new_scale), np.zeros_like(new_mean)
+        
         # 1) Remember old scaler params
         old_mean, old_scale = (
             self._num_scaler.mean_.copy(),
@@ -348,6 +373,19 @@ class LoanVectorizer:
     def n_numeric(self) -> int:
         """Number of numeric features to scale."""
         return len(self.num_to_scale)
+    
+    @property
+    def dimension_(self) -> int:
+        """
+        Total number of features after vectorization, including both numeric
+        and categorical features.
+        """
+        n_num = self.n_numeric
+        n_cat = (
+            self._cat_encoder.feature_names_in_.shape[0]
+            if self._cat_encoder and self.categorical_attrs else 0
+        )
+        return n_num + n_cat
     
     # ------ date parsing helper ----------------------------------------------
     @staticmethod

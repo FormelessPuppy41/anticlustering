@@ -11,7 +11,7 @@ import datetime as _dt
 import joblib
 
 
-from ...loan.loan import LoanRecord, LoanStatus
+from ...core.loans.loan import LoanRecord, LoanStatus
 from ...streaming.simulator import LoanSimulator
 from ...loan.features import parse_raw_row, parse_kaggle_dataframe
 

@@ -22,7 +22,7 @@ from typing import Optional, Union, Dict, Any, get_type_hints, get_args, get_ori
 import decimal
 
 
-from .utils import _parse_date, _add_months, _raise
+from ...loan.utils import _parse_date, _add_months, _raise
 
 
 _LOG = logging.getLogger(__name__)
@@ -312,7 +312,7 @@ class LoanRecord:
             – days    since epoch      (e.g. 17175.0)
         Returns a `datetime.date` or None on failure.
         """
-        from .utils import _parse_date as parse_date
+        from ...loan.utils import _parse_date as parse_date
         return parse_date(val)
 
 

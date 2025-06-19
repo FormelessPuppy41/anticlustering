@@ -16,7 +16,7 @@ import gurobipy as gp
 from gurobipy import GRB
 
 # keep using your existing helper enum / config
-from ..core._config import Status, ILPConfig     # unchanged
+from ..core.offline._config import Status, ILPConfig     # unchanged
 
 _LOG = logging.getLogger(__name__)
 

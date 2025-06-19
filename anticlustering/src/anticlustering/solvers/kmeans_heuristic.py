@@ -1,6 +1,6 @@
 import numpy as np
 from typing import Tuple
-from ..core._config import KMeansConfig, Status
+from ..core.offline._config import KMeansConfig, Status
 
 from ..metrics.dissimilarity_matrix import variance_objective, diversity_objective
 

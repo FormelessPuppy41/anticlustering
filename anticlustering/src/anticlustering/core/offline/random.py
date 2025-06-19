@@ -4,8 +4,8 @@ from typing import Optional
 from .base import AntiCluster
 from ._registry import register_solver
 from ._config import RandomConfig
-from ..metrics.dissimilarity_matrix import get_dissimilarity_matrix, diversity_objective
-from ..core._config import Status
+from ...metrics.dissimilarity_matrix import get_dissimilarity_matrix, diversity_objective
+from ._config import Status
 import logging
 
 _LOG = logging.getLogger(__name__)

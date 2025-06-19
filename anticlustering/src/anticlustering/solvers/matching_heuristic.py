@@ -1,6 +1,6 @@
 import numpy as np
 from typing import Tuple, Optional
-from ..core._config import MatchingConfig, Status
+from ..core.offline._config import MatchingConfig, Status
 from ..metrics.dissimilarity_matrix import get_dissimilarity_matrix, diversity_objective
 
 

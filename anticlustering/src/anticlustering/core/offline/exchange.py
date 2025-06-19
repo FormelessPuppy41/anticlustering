@@ -7,8 +7,8 @@ from .base import AntiCluster
 from ._registry import register_solver
 
 from ._config import ExchangeConfig
-from ..solvers.exchange_heuristic import ExchangeHeuristic
-from ..metrics.dissimilarity_matrix import get_dissimilarity_matrix
+from ...solvers.exchange_heuristic import ExchangeHeuristic
+from ...metrics.dissimilarity_matrix import get_dissimilarity_matrix
 
 from typing import Optional, Dict, Any
 import logging
