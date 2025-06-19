@@ -173,6 +173,12 @@ def parse_kaggle_dataframe(
         raise ValueError(f"keep_cols missing in DataFrame: {missing}")
     df = df[keep_cols].copy()                    # drop everything else
 
+    # drop rows with NaN for the date columns
+    for c in date_cols:
+        if c not in df.columns:
+            raise ValueError(f"date column {c} not found in DataFrame")
+        df = df.dropna(subset=[c])
+
     declared_cols = (
         percentage_cols
         + term_cols
