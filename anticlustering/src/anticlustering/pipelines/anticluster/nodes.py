@@ -147,8 +147,24 @@ def benchmark_simulation(
     dist ∈ {uniform[0,1], N(0,1), N(0,2)} :contentReference[oaicite:0]{index=0}.
     Results are binned by N∈{10–20,21–40,42–100} as in Table 2 :contentReference[oaicite:1]{index=1}.
     """
+    # Define N_range bins and benchmark solver mapping
+    bins = [9, 20, 40, 100]
+    bin_labels = ["10–20", "21–40", "42–100"]
+    benchmark_map = {"10–20": "ilp", "21–40": "ilp_precluster", "42–100": "exchange"}
+
     rows = []
-    for _, r in simulation_data.iterrows():
+    for idx, r in simulation_data.iterrows():
+        """if idx < 8:
+            continue
+        if idx >= 9:
+            raise ValueError()
+        
+        if idx in [0, 1, 2, 3, 4, 5]:
+            _LOG.info(
+                "benchmark_simulation: Running simulation benchmark with data structure:\n%s",
+                r.to_dict()
+            )"""
+
         run = int(r["run_id"])
         K   = int(r["K"])
         N   = int(r["N"])
@@ -156,41 +172,30 @@ def benchmark_simulation(
         D   = get_dissimilarity_matrix(X)
 
         # run each solver
-        for spec in solvers:
-            name = spec["solver_name"].lower()
-            specs = {k: v for k, v in spec.items() if k != 'solver_name'}
+        run_rows = []
+        for solver_idx, spec in enumerate(solvers):
+            spec = spec.copy()  # avoid modifying the original spec
+            name = spec.pop("solver_name").lower()
+            spec["random_state"] = run * 100 + solver_idx
 
-            if "random_state" in specs and specs["random_state"] is not None:
-                solver_idx = solvers.index(spec)
-                specs["random_state"] = run * 100 + solver_idx
-
-            # skip matching if K!=2
+            # skip invalid combinations
             if name == "matching" and K != 2:
                 continue
-            # ILP only for N == solver_limits["ilp_max_n"]
             if name == "ilp" and N > 20:
                 continue
-            # ILP+precluster only for N == solver_limits["precluster_max_n"]
             if name == "ilp_precluster" and N > 40:
                 continue
 
             # build config
-            if name == "ilp":
-                cfg = ILPConfig(n_clusters=K, **specs)
-            elif name == "ilp_precluster":
-                cfg = ILPConfig(n_clusters=K, **specs)
-            elif name == "exchange":
-                cfg = ExchangeConfig(n_clusters=K, **specs)
-            elif name == "matching":
-                cfg = MatchingConfig(n_clusters=K, **specs)
-            elif name == "kmeans":
-                cfg = KMeansConfig(n_clusters=K, **specs)
-            elif name == "random":
-                cfg = RandomConfig(n_clusters=K, **specs)
-            else:
-                cfg = BaseConfig(n_clusters=K, **specs)
-
-            cfg.n_clusters = K  # ensure K is set correctly
+            cfg_class = {
+                "ilp": ILPConfig,
+                "ilp_precluster": ILPConfig,
+                "exchange": ExchangeConfig,
+                "matching": MatchingConfig,
+                "kmeans": KMeansConfig,
+                "random": RandomConfig,
+            }.get(name, BaseConfig)
+            cfg = cfg_class(n_clusters=K, **spec)
 
             solver = get_solver(name, config=cfg)
             solver.fit(X, D=D)
@@ -198,10 +203,17 @@ def benchmark_simulation(
             # record raw score + diagnostics
             score = solver.score_
             labels = solver.labels_
+            D_within = diversity_objective(X, labels)
+            if score != D_within:
+                _LOG.warning(
+                    "Mismatch in reported score (%.2f) vs actual D_within (%.2f) for %s. Mismatch is (score-Dwithin): (%f)",
+                    score, D_within, name, (score - D_within)
+                )
+
             M_val = _compute_M(X, labels)
             SD_val = _compute_SD(X, labels)
 
-            rows.append({
+            run_rows.append({
                 "run": run,
                 "K": K,
                 "N": N,
@@ -210,39 +222,40 @@ def benchmark_simulation(
                 "M": M_val,
                 "SD": SD_val,
             })
+        # per-run %Dwithin: use the max score across all solvers in this run
+        best_score = max(item["score"] for item in run_rows)
+        for item in run_rows:
+            item["best_score"] = best_score
+            item["percent"]    = item["score"] / best_score * 100
+
+        rows.extend(run_rows)
+
+        """# compute per-run %Dwithin and assign N_range
+        N_range = pd.cut(
+            [N],
+            bins=bins,
+            labels=labels,
+            ordered=False,
+            include_lowest=True
+        )[0]
+        best_solver = benchmark_map[N_range]
+        best_score = next(item["score"] for item in run_rows if item["solver"] == best_solver)
+
+        for item in run_rows:
+            item["best_score"] = best_score
+            item["percent"]    = item["score"] / best_score * 100
+            item["N_range"]    = N_range
+
+        rows.extend(run_rows)"""
 
     df = pd.DataFrame(rows)
 
-    # bin N into the three ranges
     df["N_range"] = pd.cut(
         df["N"],
-        bins=[9, 20, 40, 100],
-        labels=["10–20","21–40","42–100"]
+        bins=bins, 
+        labels=bin_labels
     )
 
-    # compute percent of best per run/K
-    # Define which solver is “optimal” in each N‐bin
-    benchmark_map = {
-        "10–20": "ilp",
-        "21–40": "ilp_precluster",
-        "42–100": "exchange",
-    }
-
-    # Extract the benchmark scores for each (run, K, N_range)
-    # 1. Filter df down to only those benchmark rows
-    bench_df = df[
-        df["solver"] == df["N_range"].map(benchmark_map)
-    ][["run", "K", "N_range", "score"]].rename(columns={"score": "best_score"})
-
-    # 2. Merge best_score back onto the full df
-    df = df.merge(
-        bench_df,
-        on=["run", "K", "N_range"],
-        how="left"
-    )
-
-    # 3. Compute percent
-    df["percent"] = df["score"] / df["best_score"] * 100
 
     # aggregate means & SDs
     table2 = (

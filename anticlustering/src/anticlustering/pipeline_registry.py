@@ -27,7 +27,7 @@ def register_pipelines() -> dict[str, Pipeline]:
     # BaseLine pipeline
     # This pipeline runs the data simulation, the anticlustering algorithm, and visualisation.
     # The outputs are Table1, Table2, and a Graph.
-    baseline = data_simulation_pl() + anticluster_pl() + visualisation_pl()
+    baseline = data_simulation_pl() + anticluster_pl() #+ visualisation_pl()
     pipelines["baseline"] = baseline
     
     # Online pipeline

@@ -89,6 +89,9 @@ def generate_simulation_study_data(
     ks         = np.tile(k_values, n_runs)
     dists      = rng.choice(dist_names, size=total_runs)
 
+    _LOG.info("Generating %d simulation records for runs %s, K values %s, distributions %s",
+              total_runs, run_ids, ks, dists)
+
     records = []
     for run_id, K_, dist in zip(run_ids, ks, dists):
         # determine valid multiples of K_
@@ -127,5 +130,5 @@ def generate_simulation_study_data(
 
     df = pd.DataFrame(records)
     _LOG.info("Generated %d simulation records", len(df))
-    _LOG.debug("First few rows:\n%s", df.head())
+    _LOG.info("First few rows:\n%s", df.head(15))
     return df

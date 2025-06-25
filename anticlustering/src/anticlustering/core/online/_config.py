@@ -25,5 +25,40 @@ class OnlineExchangeConfig(OnlineBaseConfig):
     size_delta: int = 10
     k_neighbours: int = 10
     n_restarts: int = 1
-    objective: str = "diversity"
+    objective: str = "diversity" # or 'variance'
     metric: str = "euclidean"
+
+    rebalance_method: str = "offline" # or 'incremental'
+
+
+@dataclass(slots=True)
+class OnlineGreedyConfig(OnlineBaseConfig):
+    runtime: int = 10
+    random_state: int = 42
+    time_limit: int = 1000
+
+    size_delta: int = 10
+    k_neighbours: int = 10
+    n_restarts: int = 1
+    objective: str = "diversity" # or 'variance'
+    metric: str = "euclidean"
+
+    rebalance_method: str = "incremental" # or 'incremental
+
+
+@dataclass(slots=True)
+class OnlineDenStreamConfig(OnlineBaseConfig):
+    runtime: int = 10
+    random_state: int = 42
+    time_limit: int = 1000
+
+    n_microclusters: int = 100
+    lambda_decay: float = 0.01
+
+    def __post_init__(self) -> None:
+        if self.n_clusters <= 0:
+            raise ValueError("n_clusters must be a positive integer")
+        if self.n_microclusters <= 0:
+            raise ValueError("n_microclusters must be a positive integer")
+        if self.lambda_decay <= 0:
+            raise ValueError("lambda_decay must be a positive float")

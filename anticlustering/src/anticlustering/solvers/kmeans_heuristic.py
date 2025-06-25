@@ -25,6 +25,9 @@ class KMeansHeuristic:
         self.tol        = getattr(config, "tol", 0.0)
         self.rng        = np.random.default_rng(getattr(config, "random_state", None))
 
+        if self.cfg.objective != 'variance':
+            raise ValueError(f"KMeansHeuristic only supports 'variance' objective, got {self.cfg.objective}")
+
     def solve(
         self, 
         X: np.ndarray

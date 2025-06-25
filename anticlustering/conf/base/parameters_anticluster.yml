@@ -49,7 +49,7 @@ anticluster:
       preclustering : true
       time_limit    : null
       mip_gap       : 0.0
-      max_n         : 30
+      max_n         : 40
     - solver_name   : exchange
       time_limit    : 180
       objective     : diversity
@@ -59,7 +59,7 @@ anticluster:
       verbose       : true
     - solver_name   : kmeans
       time_limit    : 180
-      objective     : diversity
+      objective     : variance
       metric        : euclidean
       max_sweeps    : 1
       patience      : 1

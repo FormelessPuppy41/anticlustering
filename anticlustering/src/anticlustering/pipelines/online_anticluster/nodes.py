@@ -121,7 +121,7 @@ def simulate_stream(
 
 
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from ...core.online._config import OnlineExchangeConfig
+from ...core.online._config import OnlineExchangeConfig, OnlineGreedyConfig, OnlineDenStreamConfig
 from ...core.loans.vectorizer import LoanVectorizerConfig
 
 _LOG = logging.getLogger(__name__)
@@ -148,9 +148,9 @@ def update_anticlusters(
         num_scaler=StandardScaler(),
         cat_encoder=OneHotEncoder(handle_unknown="ignore",sparse_output=False),
     )
-    online_exchange_config = OnlineExchangeConfig(n_clusters=k)
+    online_config = OnlineDenStreamConfig(n_clusters=k)
     # Initialize manager with chosen solver
-    solver = get_online_solver("online_exchange", config=online_exchange_config)  # or pass in solver_name via params
+    solver = get_online_solver("online_anticlustream", config=online_config)  # or pass in solver_name via params
     mgr = AnticlusterManager(
         solver=solver,
         vectorizer_config=vector_config,
