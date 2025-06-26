@@ -22,6 +22,9 @@ class OnlineGreedySolver(BaseOnlineSolver):
     chosen objective, and enforces size‐delta strictly.
     """
 
+    #FIXME: Is it logical for both assign and remove to rebalance? wouldn't it be better to only rebalance once? 
+    # Either do this in a 'pipeline' or choose to first remove and then assign, or vice versa and lastly rebalance.
+
     def __init__(self, config: OnlineGreedyConfig) -> None:
         super().__init__(config)
         self.config = config
@@ -30,6 +33,8 @@ class OnlineGreedySolver(BaseOnlineSolver):
         self.delta = config.size_delta
         self.obj = config.objective.lower()
         self.rebalance_method = config.rebalance_method.lower()
+        self.size_balance_all_assignments = config.size_balance_all_assignments
+        self.obj_f = None
 
         # pick objective function
         if self.obj == "variance":
@@ -51,11 +56,12 @@ class OnlineGreedySolver(BaseOnlineSolver):
 
         _LOG.debug("OnlineGreedySolver initialized with config: %s", config)
 
-    def assign_new(
+    def _greedy_assignment(
         self,
         data: StreamingDataStore,
         prev_assignments: Dict[str, int],
-        new_ids: List[str]
+        new_ids: List[str],
+        enforce_size: bool = False
     ) -> Dict[str, int]:
         """
         Assign each incoming ID immediately, choosing the cluster
@@ -67,31 +73,124 @@ class OnlineGreedySolver(BaseOnlineSolver):
         X = data.features  # (N_total × D)
         id_to_idx = {lid: i for i, lid in enumerate(ids)}
 
-        # build current clusters as index lists
+        # Build current clusters & sizes
         clusters: Dict[int, List[int]] = {j: [] for j in range(self.K)}
-        for lid, j in assignments.items():
-            clusters[j].append(id_to_idx[lid])
+        sizes = [0] * self.K
+        for lid, k in assignments.items():
+            idx = id_to_idx[lid]
+            clusters[k].append(idx)
+            sizes[k] += 1
 
+        # Track which clusters are still empty
+        empty = [j for j, sz in enumerate(sizes) if sz == 0]
+
+        new_alloc = []
         # greedy assignment
         for lid in new_ids:
             i = id_to_idx[lid]
-            best_j = None
-            best_score = -np.inf
+            xi = X[i]
 
-            for j in range(self.K):
-                member_idxs = clusters[j] + [i]
-                block = X[member_idxs]
-                # objective returns higher = better
-                score = self.obj_f(block, np.zeros(len(block), dtype=int))
-                if score > best_score:
-                    best_score = score
-                    best_j = j
+            # 1) If any empty cluster remains, fill it immediately
+            if empty:
+                best_j = empty.pop(0)
+                _LOG.info("_greedy_assignment: Assigning %s to empty cluster %d", lid, best_j)
 
+            else:
+                best_j    = None
+                best_gain = -np.inf
+
+                if enforce_size:
+                    N_before = sum(sizes)
+                    N_after  = N_before + 1
+                    avg_size_after = N_after / self.K
+
+                    feasible_clusters = [
+                        j for j in range(self.K)
+                        if abs(sizes[j] + 1 - avg_size_after) <= self.delta
+                    ]
+
+                    if not feasible_clusters:
+                        raise RuntimeError(
+                            f"_greedy_assignment: No feasible cluster for new id {lid} "
+                            f"with size_delta={self.delta}. The current sizes are: {sizes}. "
+                            f"Total N_before={N_before}, N_after={N_after}, "
+                            f"avg_size_after={avg_size_after}. Allowed sizes: [{avg_size_after - self.delta}, {avg_size_after + self.delta}] "
+                            "This should not happen."
+                        )
+                    
+                else:
+                    feasible_clusters = list(range(self.K))
+
+                for j in feasible_clusters:
+                    member_idxs = clusters[j]          # **without** i
+
+                    mu_j  = X[member_idxs].mean(axis=0)
+                    n_j  = len(member_idxs)
+                    # compute incremental gain = sum_{m in cluster j} d(x_i, x_m)
+                    # for the diversity objective:
+                    if self.obj == "diversity":
+                        # farthest point from centroid
+                        block = X[member_idxs]
+
+                        gain = np.linalg.norm(block - xi, axis=1).sum()
+                        
+                        # normalize by cluster size
+                        gain /= n_j
+
+                    # for the variance objective:
+                    else:  # "variance"
+                        # increase in sum‐of‐squared‐distances to centroid
+                        diff2 = float(((xi - mu_j)**2).sum())
+                        gain  = (n_j / (n_j + 1.0)) * diff2
+
+                    _LOG.debug(
+                        "_greedy_assignment: Gain for id %s in cluster %d (size: %d): %.3f",
+                        lid, j, n_j, gain
+                    )
+                    if gain > best_gain:
+                        best_gain = gain
+                        best_j    = j
+
+                if best_gain == - np.inf:
+                    raise RuntimeError(
+                        f"_greedy_assignment: No valid cluster found for new id {lid}. "
+                        "This should not happen."
+                    )
+                
+                _LOG.debug(
+                    "_greedy_assignment: Assigning new id %s to cluster %d with gain=%.3f",
+                    lid, best_j, best_gain
+                )
+        
+            # now assign to the cluster with the largest **gain**
             assignments[lid] = best_j
             clusters[best_j].append(i)
+            sizes[best_j] += 1
+            new_alloc.append(best_j)
 
-        # delegate to rebalance (which may raise)
-        return self.rebalance(data, assignments)
+        _LOG.debug(
+            "_greedy_assignment: Assigned the new ids to: %s", 
+            new_alloc
+        )
+
+        return assignments
+    
+    def assign_new(
+        self,
+        data: StreamingDataStore,
+        assignments: Dict[str, int],
+        new_ids: List[str]
+    ) -> Dict[str, int]:
+        assignments = self._greedy_assignment(
+            data, assignments, new_ids, enforce_size=self.size_balance_all_assignments
+        )
+
+        # If size_balance_all_assignments is True, we rebalance immediately
+        if self.size_balance_all_assignments:
+            assignments = self.rebalance(data, assignments)
+        
+        return assignments
+
 
     def remove_old(
         self,
@@ -109,7 +208,13 @@ class OnlineGreedySolver(BaseOnlineSolver):
         for lid in old_ids:
             updated.pop(lid, None)
 
-        return self.rebalance(data, updated)
+        # If size_balance_all_assignments is True, we rebalance immediately
+        if self.size_balance_all_assignments:
+            assignments = self.rebalance(data, updated)
+        else:
+            assignments = updated
+
+        return assignments
 
     def rebalance(
         self,
@@ -127,9 +232,16 @@ class OnlineGreedySolver(BaseOnlineSolver):
         sizes_before = self._cluster_sizes(assignments)
         if not self._needs_rebalance(sizes_before, n):
             return assignments
+        
+        _LOG.info(
+            "rebalance: Rebalancing needed: sizes before=%s, n=%d, K=%d, delta=%d",
+            sizes_before, n, self.K, self.delta
+        )
 
         if self.rebalance_method == "offline":
-            updated = self.assign_new(data, {}, data.ids)
+            updated = self._greedy_assignment(
+                data, {}, data.ids, enforce_size=True
+            )
         else:  # incremental
             updated = self._incremental_rebalance(data, assignments)
 
@@ -138,6 +250,11 @@ class OnlineGreedySolver(BaseOnlineSolver):
             raise RuntimeError(
                 f"Rebalance failed to enforce size_delta={self.delta}. "
                 f"Post‐rebalance sizes: {sizes_after}"
+            )
+        else:
+            _LOG.info(
+                "rebalance: Rebalance successful: sizes before=%s, after=%s",
+                sizes_before, sizes_after
             )
         return updated
 
@@ -234,7 +351,7 @@ class OnlineGreedySolver(BaseOnlineSolver):
                             best_gain, best_move = g, (lid, a, b)
 
             _LOG.info(
-                "Best swap found: %s with gain=%.3f",
+                "_incremental_rebalance: Best swap found: %s with gain=%.3f",
                 best_move if best_move else "None",
                 best_gain if best_move else -np.inf
             )
@@ -250,50 +367,11 @@ class OnlineGreedySolver(BaseOnlineSolver):
                     # incremental centroid update omitted for brevity
                 continue
 
-            _LOG.info("No positive‐gain swap remains; stopping.")
+            _LOG.info("_incremental_rebalance: No positive‐gain swap remains; stopping.")
             break
 
         return assignments
 
-        moved = True
-        while moved:
-            moved = False
-            sizes = {j: len(clusters[j]) for j in range(self.K)}
-            over  = [j for j,s in sizes.items() if s > avg + self.delta]
-            under = [j for j,s in sizes.items() if s < avg - self.delta]
-            if not over or not under:
-                break
-
-            best_gain = -np.inf
-            best_move = None  # (loan_id, from_cluster, to_cluster)
-
-            for a in over:
-                for lid in clusters[a]:
-                    for b in under:
-                        g = total_gain(lid, a, b)
-                        if g > best_gain:
-                            best_gain = g
-                            best_move = (lid, a, b)
-            _LOG.info(
-                "Best swap found: %s with gain=%.3f",
-                best_move if best_move else "None",
-                best_gain if best_move else -np.inf
-            )
-            if best_move:
-                lid, a, b = best_move
-                clusters[a].remove(lid)
-                clusters[b].append(lid)
-                assignments[lid] = b
-                moved = True
-
-            if not moved:
-                _LOG.info(
-                    "No further moves possible to restore balance. "
-                    "Current sizes: %s", sizes
-                )
-
-        return assignments
-    
 
     def finalize(self) -> None:
         """Nothing to clean up."""

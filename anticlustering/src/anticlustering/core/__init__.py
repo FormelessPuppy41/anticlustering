@@ -12,6 +12,6 @@ from .offline.random import RandomAntiCluster, RandomConfig
 
 # Online solver interfaces
 from .online.online_base import BaseOnlineSolver, OnlineBaseConfig
-from .online.online_exchange import ExchangeOnlineSolver, OnlineExchangeConfig
+from .online.online_exchange import OnlineExchangeSolver, OnlineExchangeConfig
 from .online.online_greedy import OnlineGreedySolver, OnlineGreedyConfig
 from .online.online_micro_cluster import OnlineDenStreamSolver, OnlineDenStreamConfig

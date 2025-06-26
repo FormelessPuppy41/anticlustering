@@ -64,6 +64,8 @@ logger = logging.getLogger(__name__)
 class AnticlusterManager:
     """
     Orchestrates StreamingDataStore + BaseOnlineSolver.
+
+    Must first remove old loans, then assign new loans, and finally rebalance.
     """
 
     def __init__(
@@ -81,22 +83,43 @@ class AnticlusterManager:
 
         self.hard_balance_cols = hard_balance_cols or []
 
-
-    def on_arrival(self, loans: List[LoanRecord]) -> Dict[str,int]:
-        new_ids = self.store.add_loans(loans)
-        self.assignments = self.solver.assign_new(self.store, self.assignments, new_ids)
-        self._rebuild_group_states()
-        return self.assignments
+        # Use the status to track the 'calls' in the pipeline:
+        # 0 = ready for departures - initialized,
+        # 1 = ready for arrivals - departures have been processed,
+        # 2 = ready for rebalanced - arrivals have been processed,
+        # 3 = ready for new departures - rebalancing has been processed,
+        self.status = 0
 
     def on_departure(self, loans: List[LoanRecord]) -> Dict[str,int]:
+        if self.status != 0 and self.status != 3:
+            raise RuntimeError(f"Cannot process departures at this stage (status:{self.status}). The stage must be 0 or 3.")
+        
         old_ids = [ln.loan_id for ln in loans]
         self.store.remove_loans(old_ids)
         self.assignments = self.solver.remove_old(self.store, self.assignments, old_ids)
         self._rebuild_group_states()
+
+        self.status = 1  # After departures, we can process arrivals
+        return self.assignments
+
+    def on_arrival(self, loans: List[LoanRecord]) -> Dict[str,int]:
+        if self.status != 1:
+            raise RuntimeError(f"Cannot process arrivals at this stage (status:{self.status}). The stage must be 1.")
+        
+        new_ids = self.store.add_loans(loans)
+        self.assignments = self.solver.assign_new(self.store, self.assignments, new_ids)
+        self._rebuild_group_states()
+
+        self.status = 2  # After arrivals, we can rebalance
         return self.assignments
 
     def on_rebalance(self) -> Dict[str,int]:
+        if self.status != 2:
+            raise RuntimeError(f"Cannot rebalance at this stage (status:{self.status}). The stage must be 2.")
+        
         self.assignments = self.solver.rebalance(self.store, self.assignments)
+
+        self.status = 3  # After rebalancing, we can process new departures
         return self.assignments
 
     def get_assignments(self) -> Dict[str,int]:

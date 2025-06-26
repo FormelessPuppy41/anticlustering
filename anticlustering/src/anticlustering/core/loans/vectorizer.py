@@ -316,7 +316,7 @@ class LoanVectorizer:
             self._num_scaler.mean_,
             self._num_scaler.scale_,
         )
-        _LOG.info(
+        _LOG.debug(
             "Partial update: old mean=%s, old scale=%s; new mean=%s, new scale=%s",
             old_mean, old_scale, new_mean, new_scale
         )
@@ -329,7 +329,8 @@ class LoanVectorizer:
         a[mask] = old_scale[mask] / new_scale[mask]
         b[mask] = (old_mean[mask] - new_mean[mask]) / new_scale[mask]
 
-        _LOG.info("partial_update: safe rescale factors a=%s, b=%s", a.tolist(), b.tolist())
+        _LOG.debug("partial_update: safe rescale factors a=%s, b=%s", a.tolist(), b.tolist())
+        _LOG.info("partial_update: Updated numeric scaler with %d loans; ", len(loans))
         return a, b
     
     def rescale_features(

@@ -17,33 +17,28 @@ class OnlineBaseConfig:
     time_limit: Optional[int] = None  # seconds
 
 @dataclass(slots=True)
-class OnlineExchangeConfig(OnlineBaseConfig):
-    runtime: int = 10
-    random_state: int = 42
-    time_limit: int = 1000
-
-    size_delta: int = 10
-    k_neighbours: int = 10
-    n_restarts: int = 1
-    objective: str = "diversity" # or 'variance'
-    metric: str = "euclidean"
-
-    rebalance_method: str = "offline" # or 'incremental'
-
-
-@dataclass(slots=True)
 class OnlineGreedyConfig(OnlineBaseConfig):
     runtime: int = 10
     random_state: int = 42
     time_limit: int = 1000
 
-    size_delta: int = 10
-    k_neighbours: int = 10
-    n_restarts: int = 1
+    size_delta: int = 5
     objective: str = "diversity" # or 'variance'
-    metric: str = "euclidean"
+    rebalance_method: str = "offline" # 'offline' or 'incremental
+    size_balance_all_assignments: bool = True # 'True' > maintain size balance at each assignment step, 'False' > only at rebalancing
 
-    rebalance_method: str = "incremental" # or 'incremental
+@dataclass(slots=True)
+class OnlineExchangeConfig(OnlineGreedyConfig):
+    runtime: int = 10
+    random_state: int = 42
+    time_limit: int = 1000
+
+    size_delta: int = 5
+    objective: str = "diversity" # or 'variance'
+    rebalance_method: str = "offline" # 'offline' or 'incremental
+    size_balance_all_assignments: bool = True # 'True' > maintain size balance at each assignment step, 'False' > only at rebalancing
+
+
 
 
 @dataclass(slots=True)

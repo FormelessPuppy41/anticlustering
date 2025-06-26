@@ -148,9 +148,13 @@ def update_anticlusters(
         num_scaler=StandardScaler(),
         cat_encoder=OneHotEncoder(handle_unknown="ignore",sparse_output=False),
     )
-    online_config = OnlineDenStreamConfig(n_clusters=k)
+    online_config = OnlineGreedyConfig(n_clusters=k)
+    online_config = OnlineExchangeConfig(n_clusters=k)
+    
     # Initialize manager with chosen solver
-    solver = get_online_solver("online_anticlustream", config=online_config)  # or pass in solver_name via params
+    # online_exchange
+    # online_greedy
+    solver = get_online_solver("online_exchange", config=online_config)  # or pass in solver_name via params
     mgr = AnticlusterManager(
         solver=solver,
         vectorizer_config=vector_config,
@@ -174,13 +178,15 @@ def update_anticlusters(
         arrivals   = [loan_map[lid] for lid in arr_ids]
         departures = [loan_map[lid] for lid in dep_ids]
 
-        # feed arrivals
-        if arrivals:
-            mgr.on_arrival(arrivals)
-
         # feed departures
-        if departures:
-            mgr.on_departure(departures)
+        mgr.on_departure(departures)
+
+        # feed arrivals
+        mgr.on_arrival(arrivals)
+
+        # rebalance if needed
+        if arrivals or departures:
+            mgr.on_rebalance()
 
         # snapshot & record any moves
         current = mgr.get_assignments()  # Dict[str,int]
