@@ -2,7 +2,7 @@
 
 import logging
 import heapq
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 import numpy as np
 
 from .online_greedy import OnlineGreedySolver        # your existing greedy solver
@@ -42,132 +42,221 @@ class OnlineExchangeSolver(OnlineGreedySolver):
             data: StreamingDataStore, 
             assignments: Dict[str, int]
         ) -> Dict[str, int]:
+        assignments = self._exchange_all(data, assignments)
         assignments = super().rebalance(data, assignments)
 
         # After rebalancing, run the global 2-exchange pass again
-        assignments = self._exchange_all(data, assignments)
+        
 
         return assignments
+    
+    def _build_centroids(
+        self, X: np.ndarray, assign_arr: np.ndarray
+    ) -> np.ndarray:
+        """Compute centroids for each cluster."""
+        K, D = self.K, X.shape[1]
+        centroids = np.zeros((K, D), dtype=float)
+        for j in range(K):
+            mask = (assign_arr == j)
+            if mask.any():
+                centroids[j] = X[mask].mean(axis=0)
+        return centroids
+
+    def _build_distance_matrix(
+        self, X: np.ndarray, centroids: np.ndarray
+    ) -> np.ndarray:
+        """Compute distance matrix D[i,k] = ||X[i] - centroids[k]||."""
+        return np.linalg.norm(
+            X[:, None, :] - centroids[None, :, :], axis=2
+        )
+
+    def _proxy_gain_variance(
+        self,
+        D2: np.ndarray,
+        counts: Dict[int,int],
+        Ca: List[int],
+        Cb: List[int],
+        a: int,
+        b: int
+    ) -> Optional[Tuple[int,int,float]]:
+        """
+        Compute surrogate gain for variance between clusters a and b.
+        Returns (i_idx, j_idx, proxy_gain) or None if invalid.
+        """
+        ca = counts[a]
+        cb = counts[b]
+        if ca <= 1 or cb <= 1:
+            return None
+        # candidate from a->b
+        gi = (cb/(cb+1.0)) * D2[Ca, b] - (ca/(ca-1.0)) * D2[Ca, a]
+        i_loc    = int(gi.argmax()); gain_i = gi[i_loc]
+        i_idx    = Ca[i_loc]
+        # candidate from b->a
+        gj = (ca/(ca+1.0)) * D2[Cb, a] - (cb/(cb-1.0)) * D2[Cb, b]
+        j_loc    = int(gj.argmax()); gain_j = gj[j_loc]
+        j_idx    = Cb[j_loc]
+        return (i_idx, j_idx, gain_i + gain_j)
+
+    def _proxy_gain_diversity(
+        self,
+        Dmat: np.ndarray,
+        Ca: List[int],
+        Cb: List[int],
+        a: int,
+        b: int
+    ) -> Tuple[int,int,float]:
+        """
+        Compute surrogate gain for diversity between clusters a and b.
+        Returns (i_idx, j_idx, proxy_gain).
+        """
+        diffs_a = Dmat[Ca, b] - Dmat[Ca, a]
+        i_loc   = int(diffs_a.argmax()); gain_i = diffs_a[i_loc]
+        i_idx   = Ca[i_loc]
+        diffs_b = Dmat[Cb, a] - Dmat[Cb, b]
+        j_loc   = int(diffs_b.argmax()); gain_j = diffs_b[j_loc]
+        j_idx   = Cb[j_loc]
+        return (i_idx, j_idx, gain_i + gain_j)
+
+    def _find_best_proxy_swap(
+        self,
+        Dmat: np.ndarray,
+        clusters: Dict[int, List[int]]
+    ) -> Optional[Tuple[int,int,int,int,float]]:
+        """
+        Scan all unordered cluster-pairs (a<b) and propose the best swap
+        under the chosen surrogate (variance or diversity).
+        """
+        best: Tuple[Optional[int],Optional[int],Optional[int],Optional[int],float]
+        best = (None, None, None, None, 0.0)
+        K = self.K
+        # precompute squared-distances and counts if variance
+        D2 = Dmat**2 if self.obj == "variance" else None
+        counts = {j: len(clusters[j]) for j in range(K)} if self.obj == "variance" else None
+
+        for a in range(K):
+            Ca = clusters[a]
+            if not Ca:
+                continue
+            for b in range(a+1, K):
+                Cb = clusters[b]
+                if not Cb:
+                    continue
+
+                if self.obj == "variance":
+                    result = self._proxy_gain_variance(D2, counts, Ca, Cb, a, b)
+                else:
+                    result = self._proxy_gain_diversity(Dmat, Ca, Cb, a, b)
+
+                if result is None:
+                    continue
+                i_idx, j_idx, proxy_gain = result
+                if proxy_gain > best[4]:
+                    best = (i_idx, j_idx, a, b, proxy_gain)
+
+        if best[0] is None:
+            return None
+        return best  # type: ignore
+
+    def _compute_true_gain(
+        self,
+        X: np.ndarray,
+        Ca: List[int],
+        Cb: List[int],
+        i_idx: int,
+        j_idx: int
+    ) -> float:
+        """
+        Compute actual objective gain from swapping i_idx in Ca with j_idx in Cb.
+        """
+        obj_f = self.obj_f
+        # before
+        A = X[Ca]; B = X[Cb]
+        zerosA = np.zeros(len(Ca), dtype=int)
+        zerosB = np.zeros(len(Cb), dtype=int)
+        obj_before = obj_f(A, zerosA) + obj_f(B, zerosB)
+        # after indices
+        A2_idx = [u for u in Ca if u != i_idx] + [j_idx]
+        B2_idx = [u for u in Cb if u != j_idx] + [i_idx]
+        A2 = X[A2_idx]; B2 = X[B2_idx]
+        zerosA2 = np.zeros(len(A2_idx), dtype=int)
+        zerosB2 = np.zeros(len(B2_idx), dtype=int)
+        obj_after = obj_f(A2, zerosA2) + obj_f(B2, zerosB2)
+        return obj_after - obj_before
+
+    def _apply_swap(
+        self,
+        X: np.ndarray,
+        assign_arr: np.ndarray,
+        assignments: Dict[str,int],
+        clusters: Dict[int, List[int]],
+        centroids: np.ndarray,
+        Dmat: np.ndarray,
+        ids: List[str],
+        swap: Tuple[int,int,int,int]
+    ) -> None:
+        """
+        Execute swap (i_idx, j_idx, a, b), update all structures in place.
+        """
+        i_idx, j_idx, a, b = swap
+        lid_i, lid_j = ids[i_idx], ids[j_idx]
+        # update assignment arrays
+        assign_arr[i_idx], assign_arr[j_idx] = b, a
+        assignments[lid_i], assignments[lid_j] = b, a
+        # update clusters
+        clusters[a].remove(i_idx); clusters[a].append(j_idx)
+        clusters[b].remove(j_idx); clusters[b].append(i_idx)
+        # update centroids for a and b
+        for j in (a, b):
+            idxs = clusters[j]
+            if idxs:
+                centroids[j] = X[idxs].mean(axis=0)
+            else:
+                centroids[j].fill(0)
+        # update distance matrix columns for a and b
+        Dmat[:, a] = np.linalg.norm(X - centroids[a], axis=1)
+        Dmat[:, b] = np.linalg.norm(X - centroids[b], axis=1)
 
     def _exchange_all(
         self,
         data: StreamingDataStore,
         assignments: Dict[str, int]
     ) -> Dict[str, int]:
-        """
-        Fast 2‐exchange via centroids + distance matrix.
-        - Build centroids and N×K distance matrix.
-        - For each cluster‐pair (a,b), pick:
-            i* = argmax_{i in a} [d(i,μ_b)-d(i,μ_a)]
-            j* = argmax_{j in b} [d(j,μ_a)-d(j,μ_b)]
-        and score gain = Δ_i + Δ_j.
-        - Swap the best pair, update only centroids[a], centroids[b],
-        and update distances to those two centroids (two columns of Dmat).
-        - Repeat until no positive‐gain swap or max_swaps reached.
-        - Log number of swaps, initial score, final score, and Δ.
-        """
-        X = data.features            # shape (N, D)
+        X   = data.features
         ids = data.ids
-        N, D = X.shape
-        K = self.K
-        obj_f = self.obj_f
-
-        # Create an array of current cluster assignments (shape N,)
         assign_arr = np.array([assignments[lid] for lid in ids], dtype=int)
+        clusters   = {j: np.where(assign_arr == j)[0].tolist() for j in range(self.K)}
 
-        # Compute initial objective score
-        initial_score = 0.0
-        for k in range(K):
-            idxs = np.where(assign_arr == k)[0]
-            if idxs.size > 0:
-                block = X[idxs]
-                zeros = np.zeros(len(idxs), dtype=int)
-                initial_score += obj_f(block, zeros)
+        centroids = self._build_centroids(X, assign_arr)
+        Dmat      = self._build_distance_matrix(X, centroids)
 
-        # Build initial centroids
-        centroids = np.zeros((K, D), dtype=float)
-        for k in range(K):
-            mask = (assign_arr == k)
-            if mask.any():
-                centroids[k] = X[mask].mean(axis=0)
-
-        # Build full distance matrix: Dmat[i,k] = ||X[i] - centroids[k]||
-        Dmat = np.linalg.norm(X[:, None, :] - centroids[None, :, :], axis=2)
-
-        max_swaps = getattr(self.config, "max_swaps_per_exchange", 100)
-    
-        _LOG.info("Starting fast exchange: N=%d, K=%d, max_swaps=%d", N, K, max_swaps)
         swaps_done = 0
+        max_swaps  = getattr(self.config, "max_swaps_per_exchange", 100)
+
+        initial_score = self.obj_f(X, assign_arr)
+
         for _ in range(max_swaps):
-            best_gain = 0.0
-            best_move = None  # tuple (i_idx, j_idx, a, b)
-
-            # scan over unordered pairs a<b
-            for a in range(K):
-                idxs_a = np.where(assign_arr == a)[0]
-                if idxs_a.size == 0:
-                    continue
-                for b in range(a+1, K):
-                    idxs_b = np.where(assign_arr == b)[0]
-                    if idxs_b.size == 0:
-                        continue
-                    
-                    # Calculate the gain for swapping items between clusters a and b:
-                    
-                    # Δ_i for each i in a: Dmat[i,b] - Dmat[i,a]
-                    diffs_a = Dmat[idxs_a, b] - Dmat[idxs_a, a]
-                    i_loc = diffs_a.argmax()
-                    gain_i = diffs_a[i_loc]
-
-                    # Δ_j for each j in b: Dmat[j,a] - Dmat[j,b]
-                    diffs_b = Dmat[idxs_b, a] - Dmat[idxs_b, b]
-                    j_loc = diffs_b.argmax()
-                    gain_j = diffs_b[j_loc]
-
-                    total_gain = gain_i + gain_j
-                    if total_gain > best_gain:
-                        best_gain = total_gain
-                        best_move = (idxs_a[i_loc], idxs_b[j_loc], a, b)
-
-            # no positive‐gain swap?
-            if best_move is None or best_gain <= 0:
+            best = self._find_best_proxy_swap(Dmat, clusters)
+            if not best or best[4] <= 0: # no positive gain found
                 break
+            i_idx, j_idx, a, b, proxy_gain = best
 
-            # perform the best swap
-            i_idx, j_idx, a, b = best_move
-            swaps_done += 1
-            lid_i, lid_j = ids[i_idx], ids[j_idx]
-            _LOG.debug(
-                "Swap #%d: %s↔%s between clusters %d↔%d, gain=%.6f",
-                swaps_done, lid_i, lid_j, a, b, best_gain
+            true_gain = self._compute_true_gain(X, clusters[a], clusters[b], i_idx, j_idx)
+            if true_gain <= 0:
+                _LOG.debug(
+                    "exchange: proxy=%.4f but true_gain=%.4f ≤ 0, stopping",
+                    proxy_gain, true_gain
+                )
+                continue
+
+            self._apply_swap(
+                X, assign_arr, assignments,
+                clusters, centroids, Dmat, ids,
+                (i_idx, j_idx, a, b)
             )
+            swaps_done += 1
 
-            # update assignment array and dict
-            assign_arr[i_idx], assign_arr[j_idx] = b, a
-            assignments[lid_i], assignments[lid_j] = b, a
+        final_score = self.obj_f(X, assign_arr)
+        diff = final_score - initial_score
 
-            # update centroids for a and b in O(D)
-            mask_a = (assign_arr == a)
-            mask_b = (assign_arr == b)
-            centroids[a] = X[mask_a].mean(axis=0) if mask_a.any() else np.zeros(D)
-            centroids[b] = X[mask_b].mean(axis=0) if mask_b.any() else np.zeros(D)
-
-            # update only two columns of Dmat in O(N·D)
-            Dmat[:, a] = np.linalg.norm(X - centroids[a], axis=1)
-            Dmat[:, b] = np.linalg.norm(X - centroids[b], axis=1)
-
-        # Compute final objective score
-        final_score = 0.0
-        for k in range(K):
-            idxs = np.where(assign_arr == k)[0]
-            if idxs.size > 0:
-                block = X[idxs]
-                zeros = np.zeros(len(idxs), dtype=int)
-                final_score += obj_f(block, zeros)
-
-        _LOG.info(
-            "Finished exchange: swaps=%d, score: %.4f → %.4f (Δ=%.4f)",
-            swaps_done, initial_score, final_score, final_score - initial_score
-        )
-
+        _LOG.info("exchange complete: %d swaps applied. Score increase: %.4f (from %.4f to %.4f)", swaps_done, diff, initial_score, final_score)
         return assignments

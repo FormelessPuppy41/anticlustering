@@ -65,7 +65,7 @@ class AntiCluster(ABC):
     # ------------ internal helpers (for subclasses) ------------------- #
     def _set_labels(self, labels: np.ndarray, *, allow_unassigned: bool = False):
         """Store a 1-D vector of length *N* with cluster indices 0…K-1."""
-        _LOG.info("Labels set to %s", labels)
+        _LOG.debug("Labels set to %s", labels)
 
         if labels.ndim != 1:
             raise ValueError("labels must be a 1-D array")

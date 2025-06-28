@@ -7,7 +7,7 @@ from .base import AntiCluster
 from ._registry import register_solver
 
 from ._config import ExchangeConfig
-from ...solvers.exchange_heuristic import ExchangeHeuristic
+from ...solvers.exchange_heuristic import GreedyExchangeHeuristic
 from ...metrics.dissimilarity_matrix import get_dissimilarity_matrix
 
 from typing import Optional, Dict, Any
@@ -18,9 +18,8 @@ import time
 _LOG = logging.getLogger(__name__)
 
 
-@register_solver('exchange')
-class ExchangeAntiCluster(AntiCluster):
-
+@register_solver('greedy_exchange')
+class GreedyExchangeAntiCluster(AntiCluster):
 
     def __init__(
             self, 
@@ -28,14 +27,14 @@ class ExchangeAntiCluster(AntiCluster):
         ):
         super().__init__(config)
         self.cfg = config
-        self._model: Optional[ExchangeHeuristic] = None
+        self._model: Optional[GreedyExchangeHeuristic] = None
     
     def fit(
             self, 
             X: Optional[np.ndarray] = None,
             *,
             D: Optional[np.ndarray] = None
-        ) -> "ExchangeAntiCluster":
+        ) -> "GreedyExchangeAntiCluster":
         if X is None and D is None:
             raise ValueError("Either X or D must be provided.")
 
@@ -52,7 +51,7 @@ class ExchangeAntiCluster(AntiCluster):
         #self.cfg.validate(n_items=N)
 
         # build model --------------------------------------------------------
-        self._model = ExchangeHeuristic(D=D, K=self.cfg.n_clusters,config=self.cfg)
+        self._model = GreedyExchangeHeuristic(D=D, K=self.cfg.n_clusters,config=self.cfg)
 
         # solve ------------------------------------------------------------
         _LOG.debug("Starting Exchange anticlustering: N=%d, K=%d", N, self.cfg.n_clusters)

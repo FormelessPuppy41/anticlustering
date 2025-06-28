@@ -56,6 +56,41 @@ class OnlineGreedySolver(BaseOnlineSolver):
 
         _LOG.debug("OnlineGreedySolver initialized with config: %s", config)
 
+
+    def objective_value(
+        self,
+        data: StreamingDataStore,
+        assignments: Dict[str, int]
+    ) -> float:
+        """
+        Compute the objective value for the current assignments.
+        """
+        if not data.ids:
+            return 0.0
+
+        ids = data.ids
+        X = data.features
+        id_to_idx = {lid: i for i, lid in enumerate(ids)}
+        # Build current clusters
+        clusters: Dict[int, List[int]] = {j: [] for j in range(self.K)}
+        for lid, k in assignments.items():
+            idx = id_to_idx[lid]
+            clusters[k].append(idx)
+
+        labels = np.array(
+                [assignments.get(lid, -1) for lid in ids], dtype=int
+            )
+        
+        # Compute the objective value
+        if self.obj == "variance":
+            # Determine the np.ndarray of cluster assignments
+            
+            # Compute the variance objective
+            return self.obj_f(X, labels)
+        elif self.obj == "diversity":
+            # For diversity, we can directly use the assignments
+            return self.obj_f(X, labels)
+
     def _greedy_assignment(
         self,
         data: StreamingDataStore,
@@ -186,7 +221,7 @@ class OnlineGreedySolver(BaseOnlineSolver):
         )
 
         # If size_balance_all_assignments is True, we rebalance immediately
-        if self.size_balance_all_assignments:
+        if not self.size_balance_all_assignments:
             assignments = self.rebalance(data, assignments)
         
         return assignments
@@ -359,12 +394,27 @@ class OnlineGreedySolver(BaseOnlineSolver):
             if best_move and best_gain > -np.inf:
                 lid, a, b = best_move
                 i = id_to_idx[lid]
+                x_i = X[i]
                 labels[i] = b
                 assignments[lid] = b
                 # update counts & centroids incrementally if variance
                 if self.obj == "variance":
-                    counts[a] -= 1; counts[b] += 1
-                    # incremental centroid update omitted for brevity
+                    # old counts
+                    ca = counts[a]
+                    cb = counts[b]
+                    # update counts
+                    counts[a] = ca - 1
+                    counts[b] = cb + 1
+
+                    # remove x_i from cluster a
+                    if counts[a] > 0:
+                        centroids[a] = (ca * centroids[a] - x_i) / counts[a]
+                    else:
+                        centroids[a] = np.zeros_like(centroids[a])
+
+                    # add x_i to cluster b
+                    centroids[b] = (cb * centroids[b] + x_i) / counts[b]
+
                 continue
 
             _LOG.info("_incremental_rebalance: No positive‐gain swap remains; stopping.")

@@ -57,6 +57,11 @@ anticluster_metrics:
   versioned: true
 
 
+online_solver_metrics:
+  type: pandas.CSVDataset
+  filepath: data/03_primary/online_solver_metrics.csv
+  versioned: true
+
 # --- REPORTS -----------------------------------------------------------
 report_data_table1_replication:
   type: pandas.CSVDataset

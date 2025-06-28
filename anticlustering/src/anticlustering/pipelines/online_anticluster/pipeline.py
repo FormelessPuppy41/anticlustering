@@ -11,35 +11,43 @@ generated using Kedro 0.19.13
 from kedro.pipeline import node, Pipeline, pipeline  # noqa
 
 from ...constants import Parameters as P, Catalog as C
-from .nodes import simulate_stream, update_anticlusters
+from .nodes import simulate_stream, update_anticlusters, simulate_solvers
 
 def create_pipeline(**kwargs) -> Pipeline:
     return pipeline([
+        # node(
+        #     func=simulate_stream,
+        #     inputs=[
+        #         C.Data.KAGGLE_PROCESSED_LOAN_RECORDS,
+        #         P.OnlineAnticluster.STREAM_START_DATE,
+        #         P.OnlineAnticluster.STREAM_END_DATE
+        #     ],
+        #     outputs=C.Data.KAGGLE_STREAM_MONTHLY_EVENTS,
+        #     name="simulate_stream_node"
+        # ),
+        # node(
+        #     func=update_anticlusters,
+        #     inputs=[
+        #         C.Data.KAGGLE_PROCESSED_LOAN_RECORDS,
+        #         C.Data.KAGGLE_STREAM_MONTHLY_EVENTS,
+        #         P.OnlineAnticluster.K_GROUPS,
+        #         P.OnlineAnticluster.KAGGLE_COLUMNS,
+        #         P.OnlineAnticluster.METRICS_CAT_COLS,
+        #         P.OnlineAnticluster.HARD_BALANCE_COLS
+        #     ],
+        #     outputs=[
+        #         C.Data.ANTICLUSTER_ASSIGNMENTS,
+        #         C.Data.ANTICLUSTER_METRICS
+        #     ],
+        #     name="update_anticlusters_node"
+        # ), 
         node(
-            func=simulate_stream,
+            func=simulate_solvers,
             inputs=[
-                C.Data.KAGGLE_PROCESSED_LOAN_RECORDS,
-                P.OnlineAnticluster.STREAM_START_DATE,
-                P.OnlineAnticluster.STREAM_END_DATE
+                
             ],
-            outputs=C.Data.KAGGLE_STREAM_MONTHLY_EVENTS,
-            name="simulate_stream_node"
-        ),
-        node(
-            func=update_anticlusters,
-            inputs=[
-                C.Data.KAGGLE_PROCESSED_LOAN_RECORDS,
-                C.Data.KAGGLE_STREAM_MONTHLY_EVENTS,
-                P.OnlineAnticluster.K_GROUPS,
-                P.OnlineAnticluster.KAGGLE_COLUMNS,
-                P.OnlineAnticluster.METRICS_CAT_COLS,
-                P.OnlineAnticluster.HARD_BALANCE_COLS
-            ],
-            outputs=[
-                C.Data.ANTICLUSTER_ASSIGNMENTS,
-                C.Data.ANTICLUSTER_METRICS
-            ],
-            name="update_anticlusters_node"
+            outputs=C.Online.ONLINE_SOLVER_METRICS,
+            name="simulate_solvers_node"
         )
     ])
 

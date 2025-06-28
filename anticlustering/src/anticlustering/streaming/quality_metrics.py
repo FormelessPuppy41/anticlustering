@@ -16,7 +16,7 @@ import pandas as pd
 import logging
 from collections import Counter
 
-from .data_store import StreamingDataStore
+
 from ..core.streaming.stream_manager import AnticlusterManager
 from ..core.loans.loan import LoanRecord
 

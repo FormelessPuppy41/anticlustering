@@ -11,7 +11,50 @@ from anticlustering.metrics.dissimilarity_matrix import get_dissimilarity_matrix
 
 logger = logging.getLogger(__name__)
 
+
 class StreamingDataStore:
+    """
+    Base store: tracks IDs, feature matrix, and distance matrix.  
+    Subclasses implement how data is ingested and removed.
+    """
+
+    def __init__(self, feature_dim: int):
+        # feature_dim may be ignored by some subclasses
+        self._ids: List[str] = []
+        self._X: np.ndarray = np.zeros((0, feature_dim))
+        self._D: np.ndarray = np.zeros((0, 0))
+
+    @property
+    def ids(self) -> List[str]:
+        return list(self._ids)
+
+    @property
+    def features(self) -> np.ndarray:
+        return self._X.copy()
+
+    @property
+    def distances(self) -> np.ndarray:
+        return self._D.copy()
+
+    def index_of(self, item_id: str) -> int:
+        """
+        O(n) lookup of an item ID in the store.
+        """
+        try:
+            return self._ids.index(item_id)
+        except ValueError as e:
+            raise ValueError(f"ID {item_id!r} not in store") from e
+
+
+
+
+
+
+
+
+
+
+class LoanStreamingDataStore(StreamingDataStore):
     """
     Tracks the single source of truth for:
       - loan_ids (in insertion order)
@@ -19,12 +62,17 @@ class StreamingDataStore:
       - full distance matrix D (N × N)
     """
 
-    def __init__(self, vectorizer_config: LoanVectorizerConfig):
+    def __init__(
+        self,
+        vectorizer_config: LoanVectorizerConfig,
+    ) -> None:
+        super().__init__(feature_dim=0)  # placeholder, overwritten by vectorizer.dimension_
         self.vectorizer = LoanVectorizer(vectorizer_config)
-        self._ids: List[str] = []
-        self._X: np.ndarray = np.zeros((0, self.vectorizer.dimension_))
-        self._D: np.ndarray = np.zeros((0, 0))
+        self._ids = []
+        self._X = np.zeros((0, self.vectorizer.dimension_))
+        self._D = np.zeros((0, 0))
         self._id_to_loan: Dict[str, LoanRecord] = {}
+
 
     @property
     def ids(self) -> List[str]:

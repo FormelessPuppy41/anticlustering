@@ -214,3 +214,121 @@ def update_anticlusters(
     df_metrics["group_sizes"] = df_metrics["group_sizes"].apply(np.array)
 
     return [df_assign, df_metrics]
+
+
+
+from ...core.streaming.random.random_data_store import RandomStreamingDataStore
+from ...core.streaming.random.random_simulator import RandomFeatureStreamSimulator
+from ...core.streaming.random.random_stream_manager import StreamingExperimentManager
+
+from ...core.online.offline_baseline import OfflineExchangeSolver, ExchangeConfig
+from ...core.online.online_base import BaseOnlineSolver, OnlineBaseConfig
+from ...core.online.online_greedy import OnlineGreedySolver, OnlineGreedyConfig
+from ...core.online.online_exchange import OnlineExchangeSolver, OnlineExchangeConfig
+
+def simulate_solvers(
+    n_steps: int = 150,
+    feature_dim: int = 2,
+    arrival_rate: float = 2.0,
+    retention: float = 0.05,
+    distribution: str = "normal",
+    dist_params: Optional[dict] = None,
+    random_state: Optional[int] = 42,
+    n_clusters: int = 2,
+    size_delta: int = 5,
+    collect_metrics: bool = True,
+) -> Dict[str, List[float]]:
+    """
+    Run a streaming anticlustering comparison between the Greedy and Exchange solvers.
+
+    Parameters
+    ----------
+    n_steps
+        Number of time‐steps to simulate.
+    feature_dim
+        Dimensionality of each random feature vector.
+    arrival_rate
+        Mean new arrivals per step (Poisson).
+    retention
+        If <1: per‐step departure probability. If >=1: fixed window size.
+    distribution
+        "normal" or "uniform".
+    dist_params
+        Extra kwargs for the distribution:
+          - normal: {"loc":…, "scale":…}
+          - uniform: {"low":…, "high":…}
+    random_state
+        RNG seed.
+    n_clusters
+        # of clusters for each solver.
+    size_delta
+        Allowed size imbalance.
+    collect_metrics
+        If True, returns per‐step objective values for each solver.
+
+    Returns
+    -------
+    metrics : dict (solver_name → list of objective values)
+        If `collect_metrics=False`, returns an empty dict.
+    """
+    # 1) Build simulator
+    sim = RandomFeatureStreamSimulator(
+        n_steps=n_steps,
+        feature_dim=feature_dim,
+        arrival_rate=arrival_rate,
+        retention=retention,
+        distribution=distribution,
+        dist_params=dist_params,
+        random_state=random_state,
+    )
+
+    # 2) Initialize data store
+    ds = RandomStreamingDataStore(feature_dim=0)
+
+    objective = "diversity"  # "variance" or "diversity"
+
+    # 3) Instantiate solvers
+    baseline = OfflineExchangeSolver(
+        config=ExchangeConfig(
+            n_clusters=n_clusters,
+            random_state=random_state,
+            time_limit=None,
+            objective=objective
+        )
+    )
+
+    greedy = OnlineGreedySolver(
+        config= OnlineGreedyConfig(
+            n_clusters=n_clusters, 
+            size_delta=size_delta,
+            objective=objective, 
+            size_balance_all_assignments=False
+        )
+    )
+    exchange = OnlineExchangeSolver(
+        config= OnlineExchangeConfig(
+            n_clusters=n_clusters,
+            size_delta=size_delta,
+            objective=objective,
+            size_balance_all_assignments=False
+        )
+    )
+
+    solvers: List[BaseOnlineSolver] = [baseline, greedy, exchange]
+
+    # 4) Create experiment manager
+    manager = StreamingExperimentManager(
+        simulator=sim,
+        data_store=ds,
+        solvers=solvers
+    )
+
+    # 5) Run simulation
+    metrics = manager.run(collect_metrics=collect_metrics)
+    _LOG.info(
+        "simulate_solvers: Completed %d steps with %d clusters",
+        n_steps,
+        n_clusters
+    )
+    # 6) Return collected metrics (empty if collect_metrics=False)
+    return metrics

@@ -23,6 +23,10 @@ class Catalog:
     
     ALL_MODELS              = "report_all_models"
 
+    class Online:
+        """Dataset names for online solver outputs."""
+        ONLINE_SOLVER_METRICS = "online_solver_metrics"
+
     class Visualisation:
         """Dataset names for visualisation outputs."""
         TABLE1              = "report_data_table1_replication"

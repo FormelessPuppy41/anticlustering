@@ -3,13 +3,13 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Tuple
 
-from ...streaming.data_store import StreamingDataStore
+from ...streaming.data_store import LoanStreamingDataStore
 from ...core.online._config import OnlineBaseConfig
 
 class BaseOnlineSolver(ABC):
     """
     Stateless solver interface.
-    All data lives in StreamingDataStore; solver only receives snapshots.
+    All data lives in LoanStreamingDataStore; solver only receives snapshots.
     """
     def __init__(self, config: OnlineBaseConfig) -> None:
         """
@@ -20,7 +20,7 @@ class BaseOnlineSolver(ABC):
     @abstractmethod
     def assign_new(
         self,
-        data: StreamingDataStore,
+        data: LoanStreamingDataStore,
         prev_assignments: Dict[str,int],
         new_ids: List[str]
     ) -> Dict[str,int]:
@@ -32,7 +32,7 @@ class BaseOnlineSolver(ABC):
     @abstractmethod
     def remove_old(
         self,
-        data: StreamingDataStore,
+        data: LoanStreamingDataStore,
         assignments: Dict[str,int],
         old_ids: List[str]
     ) -> Dict[str,int]:
@@ -44,13 +44,25 @@ class BaseOnlineSolver(ABC):
     @abstractmethod
     def rebalance(
         self,
-        data: StreamingDataStore,
+        data: LoanStreamingDataStore,
         assignments: Dict[str,int]
     ) -> Dict[str,int]:
         """
         If size‐drift > delta, run R offline restarts on the current data,
         return a new loan→cluster map.
         """
+
+    @abstractmethod
+    def objective_value(
+        self,
+        data: LoanStreamingDataStore,
+        assignments: Dict[str, int]
+    ) -> float:
+        """
+        Compute the objective value for the current assignments.
+        This is optional and can be overridden by subclasses.
+        """
+    
 
     @abstractmethod
     def finalize(self) -> None:
