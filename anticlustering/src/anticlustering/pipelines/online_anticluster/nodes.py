@@ -226,6 +226,208 @@ from ...core.online.online_base import BaseOnlineSolver, OnlineBaseConfig
 from ...core.online.online_greedy import OnlineGreedySolver, OnlineGreedyConfig
 from ...core.online.online_exchange import OnlineExchangeSolver, OnlineExchangeConfig
 
+from ...metrics.dissimilarity_matrix import get_dissimilarity_matrix
+
+from ...core.online._registry import get_online_solver
+
+def _sample_N_by_interval(
+    breakpoints: List[int],
+    samples_per_bin: int,
+    rng: np.random.Generator
+) -> List[int]:
+    """
+    For each consecutive pair (lo, hi) in `breakpoints`, draw
+    `samples_per_bin` integers uniformly in [lo, hi], and return
+    the flat list of all draws.
+    """
+    Ns = []
+    for lo, hi in zip(breakpoints[:-1], breakpoints[1:]):
+        # draw integers in [lo, hi]
+        draws = rng.integers(lo, hi + 1, size=samples_per_bin)
+        Ns.extend(draws.tolist())
+    return Ns
+
+def simulate_online_data(
+) -> Dict[str, RandomFeatureStreamSimulator]:
+    """
+    Generate a dictionary of RandomFeatureStreamSimulator’s over a small design grid.
+    Keys encode the scenario so you can easily match results later.
+
+    Returns
+    -------
+    sims : dict
+      {
+        "N100_D2_A1.0_R0.05_normal": simulator,
+        "N100_D2_A1.0_R0.05_uniform": simulator,
+        …
+      }
+    """
+    n_steps_list:       List[int]           = [10, 50, 100, 150]
+    feature_dims:       List[int]           = [1, 2, 3, 4]
+    arrival_rates:      List[float]         = [1.0, 2.0]
+    retentions:         List[float]         = [0.05, 0.1]
+    distributions:      List[str]           = ["normal", "normal_wide", "uniform"]
+    dist_params:        Optional[Dict[str, dict]] = None
+    random_state:       Optional[int]       = 42
+
+    rng = np.random.default_rng(random_state)
+    sims: Dict[str, RandomFeatureStreamSimulator] = {}
+
+    n_steps_random_list = _sample_N_by_interval(breakpoints=n_steps_list, samples_per_bin=10, rng=rng)
+
+    for n_steps in n_steps_random_list: # 5x
+        dim = int(rng.choice(feature_dims))
+        rate = float(rng.choice(arrival_rates))
+        ret = float(rng.choice(retentions))
+        dist = str(rng.choice(distributions))
+        params = (dist_params or {}).get(dist, {})
+
+        sim = RandomFeatureStreamSimulator(
+            n_steps=n_steps,
+            feature_dim=dim,
+            arrival_rate=rate,
+            retention=ret,
+            distribution=dist,
+            dist_params=params,
+            random_state=random_state,
+        )
+        key = f"N{n_steps}_D{dim}_A{rate}_R{ret}_{dist}"
+        sims[key] = sim
+
+    return sims
+
+def simulate_online_solvers(
+    sims:    Dict[str, RandomFeatureStreamSimulator],
+) -> Dict[str, dict]:
+    """
+    Run each of your online solvers across every simulator generated above.
+
+    Parameters
+    ----------
+    sims : dict of RandomFeatureStreamSimulator
+      Output of simulate_online_data().
+    n_clusters : int
+      # of clusters for each solver.
+    size_delta : int
+      balance slack for the online methods.
+    collect_metrics : bool
+      If True, returns whatever manager.run() collects (per-step histories).
+
+    Returns
+    -------
+    results : dict
+      {
+        scenario_key: {
+          'baseline':  <metrics dict>,
+          'greedy':    <metrics dict>,
+          'exchange':  <metrics dict>
+        },
+        …
+      }
+    """
+    n_clusters:     List[int]   = [2]
+    size_delta:     int   = 5
+    random_state:   int   = 42
+    collect_metrics: bool = True
+
+    results: Dict[str, dict] = {}
+    for key, sim in sims.items():
+        # 1) New, empty data‐store
+        ds = RandomStreamingDataStore(feature_dim=sim.feature_dim)
+
+        objective = "diversity" # diversity or variance
+        # 2) Instantiate your solvers
+        solvers: List[BaseOnlineSolver] = []
+        for K in n_clusters:
+            solvers.extend([
+                OfflineExchangeSolver(ExchangeConfig(K, random_state, None, objective)),
+                OnlineGreedySolver(OnlineGreedyConfig(K, size_delta, objective)),
+                OnlineExchangeSolver(OnlineExchangeConfig(K, size_delta, objective)),
+                OnlineGreedySolver(OnlineGreedyConfig(K, size_delta, objective, rebalance_method="incremental")),
+                OnlineExchangeSolver(OnlineExchangeConfig(K, size_delta, objective, rebalance_method="incremental")),
+            ])
+
+        # 3) Fire up the manager
+        manager = StreamingExperimentManager(
+            simulator=sim,
+            data_store=ds,
+            solvers=solvers
+        )
+
+        # 4) Run it
+        summary_df, _ = manager.run(collect_metrics=collect_metrics)
+
+        # add the scenario key so we can extract N later
+        summary_df = summary_df.copy()
+        summary_df["scenario"] = key
+
+        # store each solver's summary_df
+        by_solver = { name: df for name, df in summary_df.groupby("solver") }
+
+        results[key] = by_solver
+
+    return results
+
+def aggregate_results_by_bins(
+    results: Dict[str, Dict[str, pd.DataFrame]]
+) -> pd.DataFrame:
+    """
+    Flatten the results dict, bin by N, and compute the Table 2 aggregates.
+    """
+    # 1) collect all summary rows
+    records = []
+    for scenario, solver_dfs in results.items():
+        for solver_name, df in solver_dfs.items():
+            # each df here is the scenario's summary_df filtered by solver
+            # it has one row per scenario (since manager.run builds one summary row)
+            row = df.iloc[0]
+            records.append({
+                "scenario":   scenario,
+                "solver":     solver_name,
+                "final_%D":   row["final_%D"],
+                "AUC_ΔM":     row["AUC_ΔM"],
+                "AUC_ΔSD":    row["AUC_ΔSD"],
+                "avg_total_solve_time": row["total_solve_time"],
+                "p(95%)_%D": row["p(95%)_%D"],
+                "p(99%)_%D": row["p(99%)_%D"],
+                "K":         row["K"],
+            })
+
+    summary_all = pd.DataFrame.from_records(records)
+
+    # 2) extract N
+    summary_all["N"] = (
+        summary_all["scenario"]
+        .str.extract(r"N(\d+)_")  # capture digits after the leading "N"
+        .astype(int)
+    )
+
+    # 3) define and assign bins
+    bins   = [10, 50, 100, 150]
+    labels = ["10–50", "51-100", "101–150"]
+    summary_all["N_bin"] = pd.cut(summary_all["N"], bins=bins, labels=labels)
+
+    # 4) group and aggregate
+    table2 = (
+        summary_all
+        .groupby(["solver", "N_bin", "K"], observed=True)
+        .agg(
+            pct_D    = ("final_%D",  "mean"),
+            AUC_Delta_M  = ("AUC_ΔM",    "mean"),
+            AUC_Delta_SD = ("AUC_ΔSD",   "mean"),
+            runs     = ("scenario",  "size"),
+            avg_solve_time = ("avg_total_solve_time", "mean"),
+            avg_95pct_d = ("p(95%)_%D", "mean"),
+            avg_99pct_d = ("p(99%)_%D", "mean")
+        )
+        .reset_index()
+    )
+
+    
+    return table2
+
+
+
 def simulate_solvers(
     n_steps: int = 150,
     feature_dim: int = 2,
@@ -301,16 +503,14 @@ def simulate_solvers(
         config= OnlineGreedyConfig(
             n_clusters=n_clusters, 
             size_delta=size_delta,
-            objective=objective, 
-            size_balance_all_assignments=False
+            objective=objective
         )
     )
     exchange = OnlineExchangeSolver(
         config= OnlineExchangeConfig(
             n_clusters=n_clusters,
             size_delta=size_delta,
-            objective=objective,
-            size_balance_all_assignments=False
+            objective=objective
         )
     )
 
@@ -324,7 +524,7 @@ def simulate_solvers(
     )
 
     # 5) Run simulation
-    metrics = manager.run(collect_metrics=collect_metrics)
+    metrics, obj_metric = manager.run(collect_metrics=collect_metrics)
     _LOG.info(
         "simulate_solvers: Completed %d steps with %d clusters",
         n_steps,

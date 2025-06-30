@@ -258,5 +258,5 @@ class OnlineExchangeSolver(OnlineGreedySolver):
         final_score = self.obj_f(X, assign_arr)
         diff = final_score - initial_score
 
-        _LOG.info("exchange complete: %d swaps applied. Score increase: %.4f (from %.4f to %.4f)", swaps_done, diff, initial_score, final_score)
+        _LOG.debug("exchange complete: %d swaps applied. Score increase: %.4f (from %.4f to %.4f)", swaps_done, diff, initial_score, final_score)
         return assignments

@@ -54,6 +54,10 @@ class RandomFeatureStreamSimulator:
                     loc = self.dist_params.get("loc", 0.0)
                     scale = self.dist_params.get("scale", 1.0)
                     X_new = self.rng.normal(loc, scale, size=(n_new, self.feature_dim))
+                elif self.distribution == "normal_wide":
+                    loc = self.dist_params.get("loc", 0.0)
+                    scale = self.dist_params.get("scale", 2.0)
+                    X_new = self.rng.normal(loc, scale, size=(n_new, self.feature_dim))
                 elif self.distribution == "uniform":
                     low = self.dist_params.get("low", 0.0)
                     high = self.dist_params.get("high", 1.0)

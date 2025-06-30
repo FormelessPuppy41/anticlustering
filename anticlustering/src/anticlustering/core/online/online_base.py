@@ -16,6 +16,7 @@ class BaseOnlineSolver(ABC):
         Initialize with configuration parameters.
         """
         self.config = config
+        self.name = self.__class__.__name__
 
     @abstractmethod
     def assign_new(

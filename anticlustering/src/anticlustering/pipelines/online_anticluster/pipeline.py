@@ -11,7 +11,7 @@ generated using Kedro 0.19.13
 from kedro.pipeline import node, Pipeline, pipeline  # noqa
 
 from ...constants import Parameters as P, Catalog as C
-from .nodes import simulate_stream, update_anticlusters, simulate_solvers
+from .nodes import simulate_stream, update_anticlusters, simulate_solvers, simulate_online_data, simulate_online_solvers, aggregate_results_by_bins
 
 def create_pipeline(**kwargs) -> Pipeline:
     return pipeline([
@@ -41,13 +41,39 @@ def create_pipeline(**kwargs) -> Pipeline:
         #     ],
         #     name="update_anticlusters_node"
         # ), 
-        node(
-            func=simulate_solvers,
-            inputs=[
+        # node(
+        #     func=simulate_solvers,
+        #     inputs=[
                 
-            ],
+        #     ],
+        #     outputs=C.Online.ONLINE_SOLVER_METRICS,
+        #     name="simulate_solvers_node"
+        # ), #FIXME: Cannot be csv if we return the dictionary of metrics, so we need to change the output type in the catalog.yaml file.
+        # 1) generate simulators
+        node(
+            func=simulate_online_data,
+            inputs=None,
+            outputs=C.Online.SIMULATORS,
+            name="simulate_online_data_node",
+        ),
+
+        # 2) run all solvers over those simulators
+        node(
+            func=simulate_online_solvers,
+            inputs=dict(
+                sims           = C.Online.SIMULATORS,
+            ),
+            outputs=C.Online.SOLVER_RAW_RESULTS,
+            name="simulate_online_solvers_node",
+        ),
+
+        # 3) aggregate into the final “Table 2”‐style output
+        node(
+            func=aggregate_results_by_bins,
+            inputs=C.Online.SOLVER_RAW_RESULTS,
             outputs=C.Online.ONLINE_SOLVER_METRICS,
-            name="simulate_solvers_node"
-        )
-    ])
+            name="aggregate_results_by_bins_node",
+        ),
+        ]
+    )
 

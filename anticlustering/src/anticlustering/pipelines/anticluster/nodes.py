@@ -122,18 +122,7 @@ def benchmark_all(
 
 # ------- Simulation BenchMark ----------------------
 
-def _compute_M(X: np.ndarray, labels: np.ndarray) -> float:
-    # mean difference across clusters, averaged over features
-    df = pd.DataFrame(X)
-    means = df.groupby(labels).mean().values  # shape (K, n_features)
-    return np.mean(np.ptp(means, axis=0))
-
-def _compute_SD(X: np.ndarray, labels: np.ndarray) -> float:
-    # std‐difference across clusters, averaged over features
-    df = pd.DataFrame(X)
-    stds = df.groupby(labels).std(ddof=1).values
-    return np.mean(np.ptp(stds, axis=0))
-
+from ...metrics.dissimilarity_matrix import _compute_M, _compute_SD
 
 def benchmark_simulation(
     simulation_data : pd.DataFrame,
@@ -230,23 +219,6 @@ def benchmark_simulation(
 
         rows.extend(run_rows)
 
-        """# compute per-run %Dwithin and assign N_range
-        N_range = pd.cut(
-            [N],
-            bins=bins,
-            labels=labels,
-            ordered=False,
-            include_lowest=True
-        )[0]
-        best_solver = benchmark_map[N_range]
-        best_score = next(item["score"] for item in run_rows if item["solver"] == best_solver)
-
-        for item in run_rows:
-            item["best_score"] = best_score
-            item["percent"]    = item["score"] / best_score * 100
-            item["N_range"]    = N_range
-
-        rows.extend(run_rows)"""
 
     df = pd.DataFrame(rows)
 

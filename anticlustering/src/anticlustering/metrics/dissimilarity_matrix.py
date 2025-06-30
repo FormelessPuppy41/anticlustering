@@ -1,5 +1,7 @@
 # src/anticlustering/solvers/_pairwise_mixin.py
 import numpy as np
+import pandas as pd
+
 from .distance_metrics import compute_squared_euclidean_distances
 from scipy.spatial.distance import cdist
 
@@ -152,3 +154,20 @@ def within_group_distance(
         Total within-cluster distance (higher = more diverse).
     """
     return diversity_objective(data, clusters)
+
+
+
+
+
+
+def _compute_M(X: np.ndarray, labels: np.ndarray) -> float:
+    # mean difference across clusters, averaged over features
+    df = pd.DataFrame(X)
+    means = df.groupby(labels).mean().values  # shape (K, n_features)
+    return np.mean(np.ptp(means, axis=0))
+
+def _compute_SD(X: np.ndarray, labels: np.ndarray) -> float:
+    # std‐difference across clusters, averaged over features
+    df = pd.DataFrame(X)
+    stds = df.groupby(labels).std(ddof=1).values
+    return np.mean(np.ptp(stds, axis=0))

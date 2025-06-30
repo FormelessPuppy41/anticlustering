@@ -36,6 +36,8 @@ class OnlineGreedySolver(BaseOnlineSolver):
         self.size_balance_all_assignments = config.size_balance_all_assignments
         self.obj_f = None
 
+        self.name = f"{self.name}_{self.rebalance_method}"
+
         # pick objective function
         if self.obj == "variance":
             self.obj_f = variance_objective
@@ -128,7 +130,7 @@ class OnlineGreedySolver(BaseOnlineSolver):
             # 1) If any empty cluster remains, fill it immediately
             if empty:
                 best_j = empty.pop(0)
-                _LOG.info("_greedy_assignment: Assigning %s to empty cluster %d", lid, best_j)
+                _LOG.debug("_greedy_assignment: Assigning %s to empty cluster %d", lid, best_j)
 
             else:
                 best_j    = None
@@ -221,8 +223,7 @@ class OnlineGreedySolver(BaseOnlineSolver):
         )
 
         # If size_balance_all_assignments is True, we rebalance immediately
-        if not self.size_balance_all_assignments:
-            assignments = self.rebalance(data, assignments)
+        assignments = self.rebalance(data, assignments)
         
         return assignments
 
@@ -268,7 +269,7 @@ class OnlineGreedySolver(BaseOnlineSolver):
         if not self._needs_rebalance(sizes_before, n):
             return assignments
         
-        _LOG.info(
+        _LOG.debug(
             "rebalance: Rebalancing needed: sizes before=%s, n=%d, K=%d, delta=%d",
             sizes_before, n, self.K, self.delta
         )
@@ -287,7 +288,7 @@ class OnlineGreedySolver(BaseOnlineSolver):
                 f"Post‐rebalance sizes: {sizes_after}"
             )
         else:
-            _LOG.info(
+            _LOG.debug(
                 "rebalance: Rebalance successful: sizes before=%s, after=%s",
                 sizes_before, sizes_after
             )
@@ -368,7 +369,7 @@ class OnlineGreedySolver(BaseOnlineSolver):
                 sum_a = np.linalg.norm(X[idxs_a] - xi, axis=1).sum() if idxs_a.size else 0.0
                 sum_b = np.linalg.norm(X[idxs_b] - xi, axis=1).sum() if idxs_b.size else 0.0
                 return sum_b - sum_a
-
+            
         while True:
             counts = np.bincount(labels, minlength=self.K)
             over  = np.where(counts >  avg + self.delta)[0]
@@ -415,14 +416,13 @@ class OnlineGreedySolver(BaseOnlineSolver):
                     # add x_i to cluster b
                     centroids[b] = (cb * centroids[b] + x_i) / counts[b]
 
-                continue
-
-            _LOG.info("_incremental_rebalance: No positive‐gain swap remains; stopping.")
-            break
+            else:
+                _LOG.debug("_incremental_rebalance: No positive‐gain swap remains; stopping.")
+                break
 
         return assignments
 
-
+    
     def finalize(self) -> None:
         """Nothing to clean up."""
         _LOG.debug("ExchangeOnlineSolver.finalize()") 

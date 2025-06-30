@@ -24,8 +24,8 @@ class OnlineGreedyConfig(OnlineBaseConfig):
 
     size_delta: int = 5
     objective: str = "diversity" # 'diversity' or 'variance'
-    rebalance_method: str = "incremental" # 'offline' or 'incremental
-    size_balance_all_assignments: bool = True # 'True' > maintain size balance at each assignment step, 'False' > only at rebalancing
+    rebalance_method: str = "offline" # 'offline' or 'incremental
+    size_balance_all_assignments: bool = False # 'True' > maintain size balance at each assignment step, 'False' > only at rebalancing
 
 @dataclass(slots=True)
 class OnlineExchangeConfig(OnlineGreedyConfig):
@@ -35,8 +35,8 @@ class OnlineExchangeConfig(OnlineGreedyConfig):
 
     size_delta: int = 5
     objective: str = "diversity" # 'diversity' or 'variance'
-    rebalance_method: str = "incremental" # 'offline' or 'incremental
-    size_balance_all_assignments: bool = True # 'True' > maintain size balance at each assignment step, 'False' > only at rebalancing
+    rebalance_method: str = "offline" # 'offline' or 'incremental
+    size_balance_all_assignments: bool = False # 'True' > maintain size balance at each assignment step, 'False' > only at rebalancing
 
 
 

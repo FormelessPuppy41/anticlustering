@@ -26,6 +26,8 @@ class Catalog:
     class Online:
         """Dataset names for online solver outputs."""
         ONLINE_SOLVER_METRICS = "online_solver_metrics"
+        SIMULATORS = "online_simulators"
+        SOLVER_RAW_RESULTS = "online_raw_results"
 
     class Visualisation:
         """Dataset names for visualisation outputs."""

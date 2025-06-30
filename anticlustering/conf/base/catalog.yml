@@ -62,6 +62,17 @@ online_solver_metrics:
   filepath: data/03_primary/online_solver_metrics.csv
   versioned: true
 
+online_simulators:
+  type: pickle.PickleDataset
+  filepath: data/03_primary/online_simulators.pkl
+  versioned: true
+
+online_raw_results:
+  type: pickle.PickleDataset
+  filepath: data/03_primary/online_raw_results.pkl
+  versioned: true
+
+
 # --- REPORTS -----------------------------------------------------------
 report_data_table1_replication:
   type: pandas.CSVDataset
