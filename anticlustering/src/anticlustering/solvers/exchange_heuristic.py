@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Callable, Literal, Tuple, Optional
+from typing import Callable, Literal, Tuple, Optional, Dict, List
 from ..core.offline._config import ExchangeConfig, Status
 from ..metrics.dissimilarity_matrix import (
     variance_objective,
@@ -140,13 +140,19 @@ class GreedyExchangeHeuristic(ExchangeHeuristic):
         D: Optional[np.ndarray] = None
     ) -> Tuple[np.ndarray, float, Status]:
         N, _ = X.shape
+        if N % self.K != 0:
+            raise ValueError(f"N={N} not divisible by K={self.K}")
+
         # prepare dissimilarity
-        if self.objective == "diversity" and D is None:
-            D = get_dissimilarity_matrix(X)
+        if self.objective == "diversity":
+            if D is None:
+                D = get_dissimilarity_matrix(X)
+        else:
+            D = None
 
         # 1) greedy initial allocation
         labels = self._greedy_initial(X)
-        score = self._obj_fn(X, labels) if self.objective == 'variance' else self._obj_fn(D, labels)
+        score = self._score(X, D, labels)
 
         # 2) apply exchange swaps on that seed
         labels, score = self._exchange_loop(X, D, labels, score)
@@ -160,34 +166,44 @@ class GreedyExchangeHeuristic(ExchangeHeuristic):
         Returns a label array of length N.
         """
         N, F = X.shape
-        clusters: dict[int, list[int]] = {j: [] for j in range(self.K)}
-        sizes = [0] * self.K
+        K = self.K
+
+        # compute target capacities: first `extra` clusters get one extra point
+        base_size = N // K
+        extra = N % K
+        capacities = [base_size + (1 if j < extra else 0) for j in range(K)]
+
+        clusters: Dict[int, List[int]] = {j: [] for j in range(K)}
+        sizes = [0] * K
         labels = np.empty(N, dtype=int)
 
         for i in range(N):
             xi = X[i]
-            # empty cluster prioritization
-            empty = [j for j, sz in enumerate(sizes) if sz == 0]
+
+            # 1) if any cluster is still empty (and under capacity), fill it
+            empty = [j for j, sz in enumerate(sizes) if sz == 0 and sz < capacities[j]]
             if empty:
                 best_j = empty[0]
             else:
-                best_j = None
+                # 2) otherwise pick among clusters that haven't hit capacity
                 best_gain = -np.inf
-                for j in range(self.K):
+                best_j = None
+                for j in range(K):
+                    if sizes[j] >= capacities[j]:
+                        continue  # skip full clusters
                     idxs = clusters[j]
-                    n_j = len(idxs)
-                    # centroid
-                    mu = X[idxs].mean(axis=0) if n_j > 0 else np.zeros(F)
-                    # compute gain
-                    if self.objective == 'variance':
-                        diff2 = float(((xi - mu) ** 2).sum())
-                        gain = (n_j / (n_j + 1.0)) * diff2
+                    if idxs:
+                        # incremental gain = sum of distances to all existing members
+                        gain = np.linalg.norm(X[idxs] - xi, axis=1).sum()
                     else:
-                        block = X[idxs]
-                        gain = np.linalg.norm(block - xi, axis=1).sum() / n_j
+                        gain = 0.0
                     if gain > best_gain:
                         best_gain, best_j = gain, j
-            # assign
+
+                if best_j is None:
+                    raise RuntimeError("No cluster available for assignment — check capacities")
+
+            # assign i → best_j
             labels[i] = best_j
             clusters[best_j].append(i)
             sizes[best_j] += 1

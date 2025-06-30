@@ -5,6 +5,7 @@ from .offline._registry import get_solver, register_solver
 # Offline solver interfaces
 from .offline.base import AntiCluster, BaseConfig
 from .offline.exchange import ExchangeAntiCluster, ExchangeConfig
+from .offline.greedy_exchange import GreedyExchangeAntiCluster, ExchangeConfig
 from .offline.ilp import ILPAntiCluster, ILPConfig, PreClusterILPAntiCluster
 from .offline.matching import MatchingAntiCluster, MatchingConfig
 from .offline.kmeans import KMeansAntiCluster, KMeansConfig

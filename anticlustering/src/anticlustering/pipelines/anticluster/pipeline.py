@@ -12,21 +12,21 @@ def create_pipeline(**kwargs):
     """
     return Pipeline(
         [
-            # node(
-            #     func=benchmark_all,
-            #     inputs=[
-            #         C.Data.SIM_DATA,                      # dict of DataFrames
-            #         P.Anticluster.K,              # n_clusters
-            #         P.Anticluster.SOLVERS,
-            #         P.Anticluster.STORE_MODELS,
-            #     ],
-            #     outputs=[
-            #         C.Visualisation.TABLE1,                        # timing table
-            #         C.Visualisation.GRAPH1,                       # convergence graph
-            #         C.ALL_MODELS,          # optional models
-            #     ],
-            #     name="benchmark_all_solvers",
-            # ),
+            node(
+                func=benchmark_all,
+                inputs=[
+                    C.Data.SIM_DATA,                      # dict of DataFrames
+                    P.Anticluster.K,              # n_clusters
+                    P.Anticluster.SOLVERS,
+                    P.Anticluster.STORE_MODELS,
+                ],
+                outputs=[
+                    C.Visualisation.TABLE1,                        # timing table
+                    C.Visualisation.GRAPH1,                       # convergence graph
+                    C.ALL_MODELS,          # optional models
+                ],
+                name="benchmark_all_solvers",
+            ),
             node(
                 func=benchmark_simulation,
                 inputs=[

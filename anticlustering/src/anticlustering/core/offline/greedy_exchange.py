@@ -32,6 +32,7 @@ class GreedyExchangeAntiCluster(AntiCluster):
     def fit(
             self, 
             X: Optional[np.ndarray] = None,
+            
             *,
             D: Optional[np.ndarray] = None
         ) -> "GreedyExchangeAntiCluster":

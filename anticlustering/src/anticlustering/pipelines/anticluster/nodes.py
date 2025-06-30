@@ -51,6 +51,8 @@ def benchmark_all(
                 cfg = ILPConfig(n_clusters=n_clusters,**spec)
             elif name == "exchange":
                 cfg = ExchangeConfig(n_clusters=n_clusters, **spec)
+            elif name == "greedy_exchange":
+                cfg = ExchangeConfig(n_clusters=n_clusters, **spec)
             else: 
                 cfg = BaseConfig(n_clusters=n_clusters, **spec)
 
@@ -59,7 +61,9 @@ def benchmark_all(
             label = (
                 "ILP" if name == "ilp" and not spec.get("preclustering")
                 else "ILP_Precluster" if spec.get("preclustering")
-                else "Exchange"
+                else "Greedy_Exchange" if name == "greedy_exchange"
+                else "Exchange" if name == "exchange"
+                else "Unknown"
             )
            
             solver.fit(X)
@@ -180,6 +184,7 @@ def benchmark_simulation(
                 "ilp": ILPConfig,
                 "ilp_precluster": ILPConfig,
                 "exchange": ExchangeConfig,
+                "greedy_exchange": ExchangeConfig,
                 "matching": MatchingConfig,
                 "kmeans": KMeansConfig,
                 "random": RandomConfig,
