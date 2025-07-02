@@ -221,6 +221,74 @@ class OnlineExchangeSolver(OnlineGreedySolver):
         data: StreamingDataStore,
         assignments: Dict[str, int]
     ) -> Dict[str, int]:
+        """
+        One‐pass largest‐gain exchange on the active items.
+        """
+        X   = data.features               # shape (N, M)
+        ids = data.ids                    # list of length N
+        N   = X.shape[0]
+
+        # Build label array and cluster lists
+        labels = np.array([assignments[lid] for lid in ids], dtype=int)
+        clusters = {k: np.where(labels == k)[0].tolist() for k in range(self.K)}
+
+        # Precompute full pairwise distance matrix once
+        D = np.linalg.norm(X[:, None, :] - X[None, :, :], axis=2)
+        _LOG.debug("Distance matrix computed with shape %s. And input %s", D.shape, D)
+        # For each item i, search for best single swap
+        for i in range(N):
+            a = labels[i]
+            # Precompute sums of distances from i into its own and each other cluster
+            sum_i_a = D[i, clusters[a]].sum()
+            best_delta = 0.0
+            best_j = None
+            best_b = None
+
+            for b, members_b in clusters.items():
+                if b == a or len(members_b) == 0:
+                    continue
+
+                # Sum of distances from i into cluster b
+                sum_i_b = D[i, members_b].sum()
+
+                # For each candidate j in cluster b, compute swap delta
+                # delta = (sum of j->a) - (sum of i->a) + (sum of i->b) - (sum of j->b)
+                # Precompute sum_j_a and sum_j_b arrays
+                sum_j_a = D[np.ix_(members_b, clusters[a])].sum(axis=1)
+                sum_j_b = D[np.ix_(members_b, members_b)].sum(axis=1)
+
+                # Compute deltas for all j in one go
+                deltas = sum_j_a - sum_i_a + sum_i_b - sum_j_b
+
+                # Find best j in this cluster
+                idx_local = np.argmax(deltas)
+                delta_j = deltas[idx_local]
+                if delta_j > best_delta:
+                    best_delta = delta_j
+                    best_j = members_b[idx_local]
+                    best_b = b
+
+            # If a positive‐gain swap was found, execute it
+            if best_delta > 0 and best_j is not None:
+                # swap i <-> best_j between clusters a and best_b
+                j = best_j
+                labels[i], labels[j] = best_b, a
+
+                # update clusters lists
+                clusters[a].remove(i);   clusters[a].append(j)
+                clusters[best_b].remove(j); clusters[best_b].append(i)
+
+        # write back into assignments dict
+        for idx, lid in enumerate(ids):
+            assignments[lid] = int(labels[idx])
+
+        return assignments
+    
+    def exchange_all(
+        self,
+        data: StreamingDataStore,
+        assignments: Dict[str, int]
+    ) -> Dict[str, int]:
         X   = data.features
         ids = data.ids
         assign_arr = np.array([assignments[lid] for lid in ids], dtype=int)

@@ -273,7 +273,7 @@ def simulate_online_data(
     rng = np.random.default_rng(random_state)
     sims: Dict[str, RandomFeatureStreamSimulator] = {}
 
-    n_steps_random_list = _sample_N_by_interval(breakpoints=n_steps_list, samples_per_bin=10, rng=rng)
+    n_steps_random_list = _sample_N_by_interval(breakpoints=n_steps_list, samples_per_bin=5, rng=rng)
 
     for n_steps in n_steps_random_list: # 5x
         dim = int(rng.choice(feature_dims))
@@ -330,8 +330,11 @@ def simulate_online_solvers(
     random_state:   int   = 42
     collect_metrics: bool = True
 
+    i = 0
     results: Dict[str, dict] = {}
     for key, sim in sims.items():
+        print(f"Current simulation: {i}")
+        i += 1
         # 1) New, empty data‐store
         ds = RandomStreamingDataStore(feature_dim=sim.feature_dim)
 

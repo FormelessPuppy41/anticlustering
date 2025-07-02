@@ -63,17 +63,28 @@ class OfflineExchangeSolver(BaseOnlineSolver):
     def objective_value(
         self,
         data,
-        assignments: Dict[str, int]
+        assignments: Dict[str, int],
+        objective: str = None
     ) -> float:
         """
         Compute the anticlustering objective (variance or diversity)
         on the current assignment.
         """
+        if objective is not None:
+            obj = objective.lower()
+            if obj not in ("variance", "diversity"):
+                raise ValueError(
+                    f"Unsupported objective '{objective}'. "
+                    "Use 'variance' or 'diversity'."
+                )
+        else:
+            obj = self.config.objective.lower() if hasattr(self.config, 'objective') else 'diversity'
+
         ids = data.ids
         labels = np.array([assignments[lid] for lid in ids], dtype=int)
         X = data.features
         # choose metric based on config if available
-        if hasattr(self.config, 'objective') and self.config.objective.lower() == 'variance':
+        if obj == 'variance':
             return variance_objective(X, labels)
         else:
             return diversity_objective(X, labels)
@@ -82,4 +93,4 @@ class OfflineExchangeSolver(BaseOnlineSolver):
         """
         No cleanup required for offline solver.
         """
-        pass
+        

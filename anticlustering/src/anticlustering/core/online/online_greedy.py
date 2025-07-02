@@ -62,13 +62,25 @@ class OnlineGreedySolver(BaseOnlineSolver):
     def objective_value(
         self,
         data: StreamingDataStore,
-        assignments: Dict[str, int]
+        assignments: Dict[str, int],
+        objective: str = None
     ) -> float:
         """
         Compute the objective value for the current assignments.
         """
         if not data.ids:
             return 0.0
+        
+        if objective is not None:
+            obj = objective.lower()
+            if obj not in ("variance", "diversity"):
+                raise ValueError(
+                    f"Unsupported objective '{objective}'. "
+                    "Use 'variance' or 'diversity'."
+                )
+            
+        else: 
+            obj = self.obj
 
         ids = data.ids
         X = data.features
@@ -84,14 +96,12 @@ class OnlineGreedySolver(BaseOnlineSolver):
             )
         
         # Compute the objective value
-        if self.obj == "variance":
-            # Determine the np.ndarray of cluster assignments
-            
+        if obj == "variance":
             # Compute the variance objective
-            return self.obj_f(X, labels)
-        elif self.obj == "diversity":
+            return variance_objective(X, labels)
+        elif obj == "diversity":
             # For diversity, we can directly use the assignments
-            return self.obj_f(X, labels)
+            return diversity_objective(X, labels)
 
     def _greedy_assignment(
         self,
@@ -159,7 +169,7 @@ class OnlineGreedySolver(BaseOnlineSolver):
                     feasible_clusters = list(range(self.K))
 
                 for j in feasible_clusters:
-                    member_idxs = clusters[j]          # **without** i
+                    member_idxs = clusters[j]          
 
                     mu_j  = X[member_idxs].mean(axis=0)
                     n_j  = len(member_idxs)
@@ -386,7 +396,7 @@ class OnlineGreedySolver(BaseOnlineSolver):
                         if g > best_gain:
                             best_gain, best_move = g, (lid, a, b)
 
-            _LOG.info(
+            _LOG.debug(
                 "_incremental_rebalance: Best swap found: %s with gain=%.3f",
                 best_move if best_move else "None",
                 best_gain if best_move else -np.inf

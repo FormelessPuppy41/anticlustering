@@ -140,8 +140,8 @@ class GreedyExchangeHeuristic(ExchangeHeuristic):
         D: Optional[np.ndarray] = None
     ) -> Tuple[np.ndarray, float, Status]:
         N, _ = X.shape
-        if N % self.K != 0:
-            raise ValueError(f"N={N} not divisible by K={self.K}")
+        # if N % self.K != 0:
+        #     raise ValueError(f"N={N} not divisible by K={self.K}")
 
         # prepare dissimilarity
         if self.objective == "diversity":
@@ -195,6 +195,7 @@ class GreedyExchangeHeuristic(ExchangeHeuristic):
                     if idxs:
                         # incremental gain = sum of distances to all existing members
                         gain = np.linalg.norm(X[idxs] - xi, axis=1).sum()
+                        gain /= len(idxs)  # normalize by cluster size
                     else:
                         gain = 0.0
                     if gain > best_gain:

@@ -57,7 +57,8 @@ class BaseOnlineSolver(ABC):
     def objective_value(
         self,
         data: LoanStreamingDataStore,
-        assignments: Dict[str, int]
+        assignments: Dict[str, int],
+        objective: str = None
     ) -> float:
         """
         Compute the objective value for the current assignments.

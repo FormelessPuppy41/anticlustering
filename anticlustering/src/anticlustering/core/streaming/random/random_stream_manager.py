@@ -94,7 +94,7 @@ class StreamingExperimentManager:
 
                 # optionally collect a snapshot of the objective
                 if collect_metrics:
-                    val = solver.objective_value(self.ds, self.assignments[name])
+                    val = solver.objective_value(self.ds, self.assignments[name], objective='diversity')
                     labels = np.ndarray(
                         shape=(len(self.ds.ids),),
                         dtype=int,
