@@ -174,6 +174,8 @@ class StreamingExperimentManager:
             # final‐step metrics
             final_obj   = current_obj.iloc[-1]
             final_pct   = pct_of_off.iloc[-1]
+            cutoff     = pct_of_off.quantile(0.75)
+            avg_pct     = pct_of_off.mean()
 
             # start building the row
             row = {
@@ -182,7 +184,7 @@ class StreamingExperimentManager:
                 'avg_items':      avg_items,
                 'max_items':      max_items,
                 'final_objective': final_obj,
-                'final_%D':        final_pct,
+                'final_%D':        avg_pct,
                 'total_solve_time': total_solve,
                 'avg_solve_time':   avg_solve,
                 "K": solver.config.n_clusters

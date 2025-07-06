@@ -90,13 +90,13 @@ def simulate_stream(
         _dt.date.fromisoformat(stream_end_date) if stream_end_date else None
     )
 
-    _LOG.info(
+    _LOG.debug(
         "simulate_stream: Simulating stream from %s to %s over %d loans",
         start or "min(issue_d)",
         end or "final departure",
         len(loans),
     )
-    _LOG.info("simulate_stream: Example loans: %s", loans[0] if loans else "No loans provided")
+    _LOG.debug("simulate_stream: Example loans: %s", loans[0] if loans else "No loans provided")
 
     engine = StreamEngine(loans, start_date=start, end_date=end)
 
@@ -111,8 +111,8 @@ def simulate_stream(
         )
 
     df_events = pd.DataFrame(records)
-    _LOG.info("simulate_stream: Generated %d monthly event rows", len(df_events))
-    _LOG.info("simulate_stream: Sample events:\n%s", df_events.head(48))
+    _LOG.debug("simulate_stream: Generated %d monthly event rows", len(df_events))
+    _LOG.debug("simulate_stream: Sample events:\n%s", df_events.head(48))
     return df_events
 
 
@@ -216,6 +216,7 @@ def update_anticlusters(
     return [df_assign, df_metrics]
 
 
+import time
 
 from ...core.streaming.random.random_data_store import RandomStreamingDataStore
 from ...core.streaming.random.random_simulator import RandomFeatureStreamSimulator
@@ -232,20 +233,49 @@ from ...core.online._registry import get_online_solver
 
 def _sample_N_by_interval(
     breakpoints: List[int],
-    samples_per_bin: int,
+    samples_per_bin: Union[int, List[int]],
     rng: np.random.Generator
 ) -> List[int]:
     """
-    For each consecutive pair (lo, hi) in `breakpoints`, draw
-    `samples_per_bin` integers uniformly in [lo, hi], and return
-    the flat list of all draws.
+    For each consecutive pair (lo, hi) in `breakpoints`, draw a number of
+    samples in [lo, hi] and return the flat list of all draws.
+
+    Parameters
+    ----------
+    breakpoints : List[int]
+        Sorted list of bin boundaries.
+    samples_per_bin : int or List[int]
+        If int, number of samples to draw in each bin.
+        If list, must have length len(breakpoints)-1, specifying the number
+        of samples to draw for each corresponding interval.
+    rng : np.random.Generator
+        NumPy random number generator.
+
+    Returns
+    -------
+    List[int]
+        Flattened list of sampled sizes.
     """
-    Ns = []
-    for lo, hi in zip(breakpoints[:-1], breakpoints[1:]):
-        # draw integers in [lo, hi]
-        draws = rng.integers(lo, hi + 1, size=samples_per_bin)
+    # Determine how many samples to draw per interval
+    num_bins = len(breakpoints) - 1
+    if isinstance(samples_per_bin, int):
+        counts = [samples_per_bin] * num_bins
+    else:
+        if len(samples_per_bin) != num_bins:
+            raise ValueError(
+                f"samples_per_bin list must have length {num_bins}, "
+                f"got {len(samples_per_bin)}"
+            )
+        counts = samples_per_bin
+
+    Ns: List[int] = []
+    # Draw for each interval
+    for (lo, hi), count in zip(zip(breakpoints[:-1], breakpoints[1:]), counts):
+        draws = rng.integers(lo, hi + 1, size=count)
         Ns.extend(draws.tolist())
+
     return Ns
+
 
 def simulate_online_data(
 ) -> Dict[str, RandomFeatureStreamSimulator]:
@@ -273,7 +303,7 @@ def simulate_online_data(
     rng = np.random.default_rng(random_state)
     sims: Dict[str, RandomFeatureStreamSimulator] = {}
 
-    n_steps_random_list = _sample_N_by_interval(breakpoints=n_steps_list, samples_per_bin=5, rng=rng)
+    n_steps_random_list = _sample_N_by_interval(breakpoints=n_steps_list, samples_per_bin=500, rng=rng)
 
     for n_steps in n_steps_random_list: # 5x
         dim = int(rng.choice(feature_dims))
@@ -326,7 +356,7 @@ def simulate_online_solvers(
       }
     """
     n_clusters:     List[int]   = [2]
-    size_delta:     int   = 5
+    size_delta:     int   = 1
     random_state:   int   = 42
     collect_metrics: bool = True
 
@@ -371,8 +401,12 @@ def simulate_online_solvers(
 
     return results
 
+
+
+
 def aggregate_results_by_bins(
-    results: Dict[str, Dict[str, pd.DataFrame]]
+    results: Dict[str, Dict[str, pd.DataFrame]],
+    bins: List[int] = [9, 50, 100, 150],
 ) -> pd.DataFrame:
     """
     Flatten the results dict, bin by N, and compute the Table 2 aggregates.
@@ -406,8 +440,9 @@ def aggregate_results_by_bins(
     )
 
     # 3) define and assign bins
-    bins   = [10, 50, 100, 150]
-    labels = ["10–50", "51-100", "101–150"]
+    labels = [str(bins[i]+1) + "-" + str(bins[i+1]) for i in range(len(bins)-1)]
+    
+    #labels = ["10–50", "51-100", "101–150"]
     summary_all["N_bin"] = pd.cut(summary_all["N"], bins=bins, labels=labels)
 
     # 4) group and aggregate
@@ -428,6 +463,275 @@ def aggregate_results_by_bins(
 
     
     return table2
+
+
+
+
+
+
+
+def sample_solve_aggregate(
+    loans: List[LoanRecord],
+    k: int,
+    kaggle_cols: Dict[str, List[str]],
+    metrics_cat_cols: List[str],
+    hard_balance_cols: Optional[List[str]] = None,
+) -> pd.DataFrame:
+    """
+    1) For each N in n_steps_list:
+       • sample N loans with replacement,
+       • simulate events,
+       • run anticlustering,
+       • collapse to one summary row,
+       • store under results[f"N{N}"]["online_exchange"].
+
+    2) Call aggregate_results_by_bins(results) to get the final table.
+    """
+    # describe the loans set:
+    _LOG.debug(
+        "sample_solve_aggregate: Starting with %d loans",
+        len(loans)
+    )
+    n_steps: List[int] = [10, 50, 100, 150]  # or any other list of N values you want to sample 
+    # 50, 200, 
+    sample_per_bin: List[int] = 500
+    random_state: int = 42
+    size_delta: int = 1  # balance slack for online methods
+    objective: str = "diversity"  # or "variance"
+
+    n_steps_list = _sample_N_by_interval(
+        breakpoints=n_steps,
+        samples_per_bin=sample_per_bin,  # number of samples per bin
+        rng=np.random.default_rng(random_state)
+    )
+
+    i = 0
+    results: Dict[str, Dict[str, pd.DataFrame]] = {}
+    for N in n_steps_list:
+        print(f"Current itteration: {i}, sample size N={N}")
+        i += 1
+        # ————————————————————————————————————————————
+        # 1a) sample with replacement
+        sampled_loans = list(np.random.choice(loans, size=N))
+
+        # 1b) simulate the stream
+        events_df = simulate_stream(sampled_loans)
+
+        solvers = []
+        solvers.extend([
+            OfflineExchangeSolver(ExchangeConfig(k, random_state, None, objective)),
+            OnlineGreedySolver(OnlineGreedyConfig(k, size_delta, objective)),
+            OnlineExchangeSolver(OnlineExchangeConfig(k, size_delta, objective)),
+            OnlineGreedySolver(OnlineGreedyConfig(k, size_delta, objective, rebalance_method="incremental")),
+            OnlineExchangeSolver(OnlineExchangeConfig(k, size_delta, objective, rebalance_method="incremental")),
+        ])
+        solvers_by_name = {solver.name: solver for solver in solvers}
+
+        # 1c) solve via online-exchange anticlustering
+        raw_metrics = update_anticlusters_multi(
+            loans=sampled_loans,
+            events_df=events_df,
+            solvers=solvers,
+            kaggle_cols=kaggle_cols,
+            metrics_cat_cols=metrics_cat_cols,
+            hard_balance_cols=hard_balance_cols,
+        )
+
+        baseline_name = solvers[0].name
+        baseline_obj = (
+            raw_metrics[baseline_name]
+            .set_index("step")["objective"]
+        )
+
+
+        summary_dict: Dict[str, pd.DataFrame] = {}
+        for solver_name, df in raw_metrics.items():
+            df_idx = df.set_index("step")
+            baseline_copy = baseline_obj.copy()
+
+            # 1) steps both series actually have
+            common = df_idx.index.intersection(baseline_copy.index)
+
+            # 2) mask out steps where baseline==0 or current==0 or either is NaN
+            base_valid = baseline_copy.loc[common].notna() & (baseline_copy.loc[common] != 0)
+            curr_valid =  df_idx["objective"].loc[common].notna()  & (df_idx["objective"].loc[common] != 0)
+            mask       = base_valid & curr_valid
+
+            if mask.sum() == 0:
+                # no valid comparison at all → fallback
+                final_pct = 100.0
+                p95       = 100.0
+                p99       = 100.0
+            else:
+                good_steps = common[mask]
+                current    = df_idx["objective"].loc[good_steps]
+                baseline   = baseline_copy.loc[good_steps]
+
+                pct_of_off = (current / baseline) * 100
+                # drop infinities just in case, then NaNs
+                pct_of_off = pct_of_off.replace([np.inf, -np.inf], np.nan).dropna()
+
+                final_pct = pct_of_off.iloc[-1]
+                cutoff = pct_of_off.quantile(0.75)
+                avg_pct   = pct_of_off.mean()
+                p95       = (pct_of_off >= 95).mean()
+                p99       = (pct_of_off >= 99).mean()
+
+            total_time = (df["solver_remove_time"] + df["solver_assign_time"]).sum()
+
+            row = {
+                "final_%D":         avg_pct,
+                "AUC_ΔM":           df["M"].mean(),
+                "AUC_ΔSD":          df["SD"].mean(),
+                "total_solve_time": total_time,
+                "p(95%)_%D":        p95,
+                "p(99%)_%D":        p99,
+                "K":                solvers_by_name[solver_name].config.n_clusters,
+            }
+            summary_dict[solver_name] = pd.DataFrame([row])
+
+        results[f"N{N}_{i}"] = summary_dict
+
+    df =  aggregate_results_by_bins(results, bins=n_steps)
+    print(df)
+    return df
+
+
+
+import time
+import ast
+from typing import List, Dict, Any, Optional
+
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+
+
+from ...metrics.dissimilarity_matrix import _compute_M, _compute_SD
+
+def update_anticlusters_multi(
+    loans: List[LoanRecord],
+    events_df: pd.DataFrame,
+    solvers: List[BaseOnlineSolver],
+    kaggle_cols: Dict[str, List[str]],
+    metrics_cat_cols: List[str],
+    hard_balance_cols: Optional[List[str]] = None,
+) -> Dict[str, pd.DataFrame]:
+    """
+    Run the same loan‐stream through multiple solvers and return, for each solver,
+    a DataFrame of raw monthly metrics with exactly the fields:
+
+      - step
+      - data_remove_time
+      - data_add_time
+      - solver_remove_time
+      - solver_assign_time
+      - objective
+      - M
+      - SD
+      - assignments (dict loan_id→cluster)
+
+    This matches the synthetic StreamingExperimentManager’s raw_metrics output.
+    """
+    # Prepare the loan lookup & shared vectorizer
+    loan_map = {ln.loan_id: ln for ln in loans}
+    vec_cfg = LoanVectorizerConfig(
+        kaggle_columns=kaggle_cols,
+        num_scaler=StandardScaler(),
+        cat_encoder=OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+    )
+
+    # Initialize a list to collect records per solver
+    raw_metrics: Dict[str, List[Dict[str, Any]]] = {}
+
+    # 1) Instantiate one AnticlusterManager per solver, track name & assignment
+    managers: Dict[str, AnticlusterManager] = {}
+    for solver in solvers:
+        name = solver.name  # assume each solver sets .name uniquely
+        managers[name] = AnticlusterManager(
+            solver=solver,
+            vectorizer_config=vec_cfg,
+            hard_balance_cols=hard_balance_cols,
+        )
+        raw_metrics[name] = []
+
+    # 2) Step through the event stream
+    step = 0
+    for _, row in events_df.sort_values("date").iterrows():
+        step += 1
+        date = LoanRecord._parse_date(row["date"])
+
+        # parse arrivals & departures
+        arr = (ast.literal_eval(row["arrivals_ids"])
+               if isinstance(row["arrivals_ids"], str)
+               else row["arrivals_ids"])
+        dep = (ast.literal_eval(row["departures_ids"])
+               if isinstance(row["departures_ids"], str)
+               else row["departures_ids"])
+        arrivals   = [loan_map[i] for i in arr]
+        departures = [loan_map[i] for i in dep]
+
+        # for each solver, do the three‐stage update & time each piece
+        for name, mgr in managers.items():
+            # 2a) departures: data remove + solver.remove_old
+            t0 = time.perf_counter()
+            mgr.store.remove_loans(dep)
+            data_remove_time = time.perf_counter() - t0
+
+            t1 = time.perf_counter()
+            mgr.assignments = mgr.solver.remove_old(mgr.store, mgr.assignments, dep)
+            solver_remove_time = time.perf_counter() - t1
+
+            mgr._rebuild_group_states()  # keep group state in sync
+
+            # 2b) arrivals: data add + solver.assign_new
+            t2 = time.perf_counter()
+            new_ids = [lo.loan_id for lo in arrivals]
+            mgr.store.add_loans(arrivals)
+            data_add_time = time.perf_counter() - t2
+
+            t3 = time.perf_counter()
+            mgr.assignments = mgr.solver.assign_new(mgr.store, mgr.assignments, new_ids)
+            solver_assign_time = time.perf_counter() - t3
+
+            mgr._rebuild_group_states()
+
+            # 2c) rebalance
+            t4 = time.perf_counter()
+            mgr.assignments = mgr.solver.rebalance(mgr.store, mgr.assignments)
+            solver_rebalance_time = time.perf_counter() - t4
+
+            mgr._rebuild_group_states()
+
+            # 3) compute “objective” and dissimilarity metrics
+            #    assume your solver implements objective_value(...)
+            obj_val = mgr.solver.objective_value(
+                mgr.store, mgr.assignments, objective=mgr.solver.config.objective
+            )
+
+            labels = np.array([mgr.assignments[lid] for lid in mgr.store.ids], dtype=int)
+            
+            M_val  = _compute_M(mgr.store.features, labels)
+            SD_val = _compute_SD(mgr.store.features, labels)
+
+            # 4) record the row exactly like raw_metrics in the synthetic manager
+            raw_metrics[name].append({
+                "step":               step,
+                "date":               date,
+                "data_remove_time":   data_remove_time,
+                "data_add_time":      data_add_time,
+                "solver_remove_time": solver_remove_time,
+                "solver_assign_time": solver_assign_time + solver_rebalance_time,
+                "objective":          obj_val,
+                "M":                  M_val,
+                "SD":                 SD_val,
+                "assignments":        mgr.assignments.copy(),
+            })
+
+    # 5) Convert each list-of-dicts into a DataFrame
+    return { name: pd.DataFrame(records) for name, records in raw_metrics.items() }
+    
+
 
 
 

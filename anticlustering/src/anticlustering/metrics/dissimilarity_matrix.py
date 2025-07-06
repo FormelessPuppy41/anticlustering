@@ -171,3 +171,39 @@ def _compute_SD(X: np.ndarray, labels: np.ndarray) -> float:
     df = pd.DataFrame(X)
     stds = df.groupby(labels).std(ddof=1).values
     return np.mean(np.ptp(stds, axis=0))
+
+def _compute_M(X: np.ndarray, labels: np.ndarray) -> float:
+    """
+    Mean‐difference across clusters, averaged over features.
+    If there are no points (or no clusters), returns 0.0.
+    """
+    # empty‐check
+    if X.size == 0 or labels.size == 0:
+        return 0.0
+
+    df = pd.DataFrame(X)
+    # if grouping yields no rows or only one cluster, difference is zero
+    grouped = df.groupby(labels).mean()
+    if grouped.shape[0] < 2:
+        return 0.0
+
+    means = grouped.values  # shape (K, n_features)
+    # ptp = max–min per feature, then average
+    return float(np.mean(np.ptp(means, axis=0)))
+
+
+def _compute_SD(X: np.ndarray, labels: np.ndarray) -> float:
+    """
+    Std‐difference across clusters, averaged over features.
+    If there are no points (or no clusters), returns 0.0.
+    """
+    if X.size == 0 or labels.size == 0:
+        return 0.0
+
+    df = pd.DataFrame(X)
+    grouped = df.groupby(labels).std(ddof=1)
+    if grouped.shape[0] < 2:
+        return 0.0
+
+    stds = grouped.values
+    return float(np.mean(np.ptp(stds, axis=0)))

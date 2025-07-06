@@ -138,7 +138,7 @@ class LoanStreamingDataStore(StreamingDataStore):
         # Remove loans from internal state
         for lid in loan_ids:
             if lid not in self._id_to_loan:
-                logger.warning("remove_loans: loan_id %s not found in store", lid)
+                logger.debug("remove_loans: loan_id %s not found in store", lid)
             else:
                 del self._id_to_loan[lid]
 
@@ -147,7 +147,7 @@ class LoanStreamingDataStore(StreamingDataStore):
         removed = [lid for lid in self._ids if lid in set_remove]
 
         if not removed:
-            logger.warning("remove_loans: none of %s found", loan_ids)
+            logger.debug("remove_loans: none of %s found", loan_ids)
             return []
 
         self._ids = [lid for lid, keep in zip(self._ids, keep_mask) if keep]

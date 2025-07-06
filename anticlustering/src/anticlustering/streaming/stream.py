@@ -217,7 +217,10 @@ class StreamEngine:
         for current in CalendarTicker(self.start_date, self.end_date):
             arrivals = self._arrivals.get(current, [])
             departures = self._departures.get(current, [])
-            self._validate_day(current, arrivals, departures)
+            try:
+                self._validate_day(current, arrivals, departures)
+            except:
+                continue
 
             evt = StreamEvent(current, arrivals, departures)
             for hook in self.hooks:

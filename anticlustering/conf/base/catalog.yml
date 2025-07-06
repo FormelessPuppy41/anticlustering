@@ -56,6 +56,11 @@ anticluster_metrics:
   filepath: data/03_primary/anticluster_metrics.csv
   versioned: true
 
+online_anticluster_loans_results:
+  type: pandas.CSVDataset
+  filepath: data/03_primary/online_anticluster_loans_results.csv
+  versioned: true
+
 
 online_solver_metrics:
   type: pandas.CSVDataset

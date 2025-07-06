@@ -121,7 +121,10 @@ class ExchangeHeuristic:
                         best_delta = delta
                         best_i, best_j = i, j
             if best_delta > self.tol:
-                labels[best_i], labels[best_j] = labels[best_j], labels[best_i]
+                l_i = labels[best_i]
+                l_j = labels[best_j]
+                labels[best_i] = l_j
+                labels[best_j] = l_i
                 score += best_delta
             else:
                 break

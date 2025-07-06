@@ -14,6 +14,7 @@ class Catalog:
 
         KAGGLE_STREAM_MONTHLY_EVENTS        = "kaggle_stream_monthly_events"  # e.g. kaggle_data_1920_stream_monthly_events
 
+        ONLINE_ANTICLUSTER_LOANS_RESULTS = "online_anticluster_loans_results"  # e.g. online_anticluster_loans_results_2020-01-01
         ANTICLUSTER_ASSIGNMENTS  = "anticluster_assignments"  # e.g. anticluster_assignments_2020-01-01
         ANTICLUSTER_METRICS      = "anticluster_metrics"      # e.g. anticluster_metrics_2020-01-01
 
